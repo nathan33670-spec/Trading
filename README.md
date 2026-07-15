@@ -58,8 +58,8 @@ Les credentials vivent dans `secrets/credentials.enc.json`, **chiffré**
 
 ```bash
 docker compose build core
-docker compose run --rm core python -m app.secrets set anthropic_api_key
 docker compose run --rm core python -m app.secrets set google_api_key
+docker compose run --rm core python -m app.secrets set claude_code_oauth_token
 docker compose run --rm core python -m app.secrets set finnhub_api_key
 docker compose run --rm core python -m app.secrets gen-vapid   # clés Web Push
 # plus tard, pour le mode réel :
@@ -68,19 +68,33 @@ docker compose run --rm core python -m app.secrets set kraken_api_key
 docker compose run --rm core python -m app.secrets set kraken_api_secret
 ```
 
-Où obtenir les clés :
+### 💰 Coût zéro : tout tient dans vos abonnements existants
 
-| Clé | Où | Coût |
+Le bot n'exige **aucune facturation API supplémentaire** :
+
+| Clé | Où l'obtenir | Coût |
 |---|---|---|
-| `anthropic_api_key` | [console.anthropic.com](https://console.anthropic.com) | à l'usage (~5-15 €/mois à ce volume) |
-| `google_api_key` | [aistudio.google.com](https://aistudio.google.com) | idem, quota gratuit existant |
-| `finnhub_api_key` | [finnhub.io](https://finnhub.io) | gratuit (prix actions + news) |
-| `trading212_api_key` | app Trading212 → Réglages → API | gratuit (commencez par un compte **Practice**) |
-| `kraken_api_key/secret` | [kraken.com](https://www.kraken.com) → Settings → API | gratuit |
+| `google_api_key` | [aistudio.google.com](https://aistudio.google.com) → *Get API key* | **0 €** — quota gratuit officiel de l'API Gemini (le bot utilise `gemini-2.5-flash`, dont le plafond gratuit journalier est large pour ce volume) |
+| `claude_code_oauth_token` | `claude setup-token` sur n'importe quel ordinateur où la CLI [Claude Code](https://claude.com/claude-code) est connectée à votre compte | **0 €** — inclus dans votre abonnement **Claude Pro** (consomme votre quota d'abonnement, usage personnel) |
+| `finnhub_api_key` | [finnhub.io](https://finnhub.io) | **0 €** (prix actions + news) |
+| `trading212_api_key` | app Trading212 → Réglages → API | **0 €** (commencez par un compte **Practice**) |
+| `kraken_api_key/secret` | [kraken.com](https://www.kraken.com) → Settings → API | **0 €** |
+| `anthropic_api_key` | console.anthropic.com | *optionnelle* — uniquement si vous préférez l'API payante |
 
-> ⚠️ Vos abonnements grand public "Claude Pro" / "Gemini Pro" ne donnent **pas**
-> d'accès API : il faut créer des clés API (facturation à l'usage, très modeste
-> ici grâce au pré-filtre par mots-clés qui limite les appels).
+Comment le bot choisit ses modèles (`core/app/analysis/llm.py`) :
+- **Analyste** : premier fournisseur disponible dans l'ordre
+  Gemini (gratuit) → CLI Claude Code (abonnement) → API Anthropic (payante).
+- **Second avis** : un fournisseur *différent* de l'analyste. Avec les deux
+  clés gratuites ci-dessus, chaque signal est donc contre-expertisé
+  Gemini × Claude, pour 0 €.
+- Avec une seule clé, le bot fonctionne quand même : les signaux exigent alors
+  une conviction ≥ 80 (seuil `solo_conviction`) faute de contre-expertise.
+
+Deux limites honnêtes : le quota gratuit Gemini a un plafond journalier
+(largement suffisant ici grâce au pré-filtre par mots-clés) et les appels via la
+CLI Claude Code puisent dans le quota de votre abonnement Pro, partagé avec
+votre propre usage — le bot ne l'appelle que pour les rares signaux, donc
+l'impact est minime.
 
 ### 3. Lancer
 
@@ -130,10 +144,11 @@ Ce que font les workflows :
 2. **Pré-filtre** : seules les news contenant des termes à fort impact
    (résultats, M&A, banques centrales, régulation crypto…) partent au LLM —
    c'est ce qui maintient le coût API très bas.
-3. **Analyse** : Claude reçoit le lot et n'émet un signal que si une actualité
-   le justifie (actif, sens, conviction 0-100, stop, objectif, raisonnement).
-   Gemini contre-expertise chaque signal : il faut **l'accord des deux modèles**
-   (ou une conviction Claude ≥ 80 si Gemini est indisponible).
+3. **Analyse** : l'analyste (Gemini par défaut, gratuit) reçoit le lot et
+   n'émet un signal que si une actualité le justifie (actif, sens, conviction
+   0-100, stop, objectif, raisonnement). Un **second modèle différent** (Claude
+   via la CLI Claude Code par défaut) contre-expertise chaque signal : il faut
+   **l'accord des deux** (ou une conviction ≥ 80 si un seul modèle est configuré).
 4. **Moteur de risque** (jamais le LLM — 100 % déterministe) :
    - taille de position = `capital × risque% ÷ distance au stop`
    - plafonds : perte max/jour, perte max/semaine (kill-switch), nb de
@@ -154,6 +169,29 @@ Ce que font les workflows :
 - **Rapports** : synthèses hebdo/mensuelles archivées.
 - **Réglages** : curseurs de risque, kill-switch, bascules paper/réel,
   activation des notifications.
+
+## Mise à jour automatique (self-update)
+
+Deux mécanismes complémentaires :
+
+1. **Maintenance du code par Claude (Routine hebdomadaire)** — une Routine
+   Claude Code planifiée se réveille chaque lundi matin : elle vérifie que les
+   flux RSS répondent encore, met à jour prudemment les dépendances, relance
+   les tests et le build, corrige ce qui casse, puis pousse sur cette branche.
+   Vous recevez une notification à chaque exécution. (Gérable depuis
+   claude.ai/code → Routines ; couverte par votre abonnement Claude.)
+
+2. **Redéploiement automatique sur le NAS** — `scripts/self-update.sh`
+   détecte les nouveaux commits, fait `git pull` + `docker compose up -d
+   --build`, et envoie une notification push une fois redéployé. À planifier
+   sur le NAS (Synology : Planificateur de tâches ; sinon cron) :
+
+   ```
+   30 6 * * * /chemin/vers/Trading/scripts/self-update.sh >> /var/log/newstrader-update.log 2>&1
+   ```
+
+Le duo forme la boucle complète : Claude améliore le code chaque semaine → le
+NAS se met à jour tout seul le lendemain matin → vous êtes notifié.
 
 ## Passage en réel — checklist
 

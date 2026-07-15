@@ -59,7 +59,7 @@ def run_analysis(db: Session) -> list[Signal]:
     news_dicts = [
         {"source": n.source, "title": n.title, "summary": n.summary} for n in batch
     ]
-    raw_signals = llm.analyze_news(news_dicts)
+    raw_signals, analyst = llm.analyze_news(news_dicts)
 
     created: list[Signal] = []
     for raw in raw_signals:
@@ -78,15 +78,16 @@ def run_analysis(db: Session) -> list[Signal]:
             stop_pct=max(0.5, min(float(raw.get("stop_pct", 3.0)), 15.0)),
             target_pct=max(1.0, min(float(raw.get("target_pct", 6.0)), 30.0)),
             rationale=raw.get("rationale", ""),
-            llm_model=settings.claude_model,
+            llm_model=analyst,
         )
         db.add(signal)
         db.commit()
         db.refresh(signal)
         created.append(signal)
 
-        # Second avis Gemini : exécutable si accord, ou si Claude seul est très confiant
-        agrees, g_conv = llm.second_opinion(raw, news_dicts)
+        # Contre-expertise par un fournisseur différent : exécutable si accord,
+        # ou si l'analyste seul est très confiant quand aucun second avis n'existe
+        agrees, g_conv = llm.second_opinion(raw, news_dicts, exclude=(analyst,))
         signal.gemini_agrees = agrees
         signal.gemini_conviction = g_conv
         db.commit()
@@ -98,7 +99,7 @@ def run_analysis(db: Session) -> list[Signal]:
         if not executable:
             signal.status = SignalStatus.rejected
             signal.status_reason = (
-                "désaccord Gemini" if agrees is False
+                "désaccord du second avis" if agrees is False
                 else f"conviction insuffisante sans second avis (<{settings.solo_conviction})"
             )
             db.commit()

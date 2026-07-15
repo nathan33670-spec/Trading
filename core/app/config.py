@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     start_capital: float = 10_000.0
     base_currency: str = "EUR"
 
-    # LLM
-    claude_model: str = "claude-sonnet-5"
-    gemini_model: str = "gemini-2.5-pro"
+    # LLM — par défaut, tout est calibré pour le coût zéro :
+    # Gemini en analyste (quota gratuit AI Studio, flash = plafond gratuit élevé),
+    # CLI Claude Code en second avis (incluse dans l'abonnement Claude Pro/Max).
+    claude_model: str = "claude-sonnet-5"       # utilisé si API Anthropic payante
+    gemini_model: str = "gemini-2.5-flash"
     # Conviction minimale pour exécuter un signal validé par les deux modèles
     min_conviction: int = 65
     # Conviction à partir de laquelle Claude seul suffit (si Gemini indisponible)

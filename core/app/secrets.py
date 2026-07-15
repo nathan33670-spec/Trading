@@ -10,8 +10,10 @@ CLI :
     python -m app.secrets gen-vapid               # génère les clés Web Push
 
 Noms de secrets utilisés par l'application :
-    anthropic_api_key, google_api_key, finnhub_api_key,
-    trading212_api_key, kraken_api_key, kraken_api_secret,
+    google_api_key            (Gemini, quota gratuit AI Studio — analyste)
+    claude_code_oauth_token   (CLI Claude Code via abonnement Pro — second avis)
+    anthropic_api_key         (API Anthropic payante — optionnelle)
+    finnhub_api_key, trading212_api_key, kraken_api_key, kraken_api_secret,
     vapid_public_key, vapid_private_key
 """
 import json

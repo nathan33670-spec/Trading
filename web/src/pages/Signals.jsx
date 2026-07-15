@@ -35,9 +35,9 @@ export default function Signals() {
         <span className="chip">{s.asset_class}</span>
       </div>
 
-      <ConvictionBar label="Claude" value={s.conviction} color="var(--series-1)" />
+      <ConvictionBar label="Analyste" value={s.conviction} color="var(--series-1)" />
       <ConvictionBar
-        label="Gemini"
+        label="2ᵉ avis"
         value={s.gemini_agrees === null ? null : s.gemini_conviction ?? 0}
         color="var(--series-2)"
       />
