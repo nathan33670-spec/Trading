@@ -1,0 +1,72 @@
+{
+  "name": "NewsTrader — Synthèses hebdo & mensuelle",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "weeks", "triggerAtDay": [0], "triggerAtHour": 19 }
+          ]
+        }
+      },
+      "name": "Chaque dimanche 19h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://core:8000/api/reports/generate?kind=weekly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Token", "value": "={{ $env.NEWSTRADER_API_TOKEN }}" }
+          ]
+        }
+      },
+      "name": "Générer synthèse hebdo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "months", "triggerAtDayOfMonth": 1, "triggerAtHour": 9 }
+          ]
+        }
+      },
+      "name": "Le 1er du mois 9h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://core:8000/api/reports/generate?kind=monthly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Token", "value": "={{ $env.NEWSTRADER_API_TOKEN }}" }
+          ]
+        }
+      },
+      "name": "Générer synthèse mensuelle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 200]
+    }
+  ],
+  "connections": {
+    "Chaque dimanche 19h": {
+      "main": [[{ "node": "Générer synthèse hebdo", "type": "main", "index": 0 }]]
+    },
+    "Le 1er du mois 9h": {
+      "main": [[{ "node": "Générer synthèse mensuelle", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

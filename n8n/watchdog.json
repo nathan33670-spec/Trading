@@ -1,0 +1,79 @@
+{
+  "name": "NewsTrader — Watchdog",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] }
+      },
+      "name": "Toutes les 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "http://core:8000/api/health",
+        "options": { "timeout": 10000 }
+      },
+      "name": "Ping /api/health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.last_news_at ? Date.now() - new Date($json.last_news_at).getTime() : 999999999 }}",
+              "rightValue": 7200000,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "name": "Ingestion muette > 2h ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [480, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://core:8000/api/push/test",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Token", "value": "={{ $env.NEWSTRADER_API_TOKEN }}" }
+          ]
+        }
+      },
+      "name": "Alerte (à personnaliser)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 0],
+      "notes": "Remplacez ce nœud par votre canal d'alerte préféré (email, Telegram…). Il se déclenche si le core est down ou si aucune news n'a été ingérée depuis 2h."
+    }
+  ],
+  "connections": {
+    "Toutes les 15 min": {
+      "main": [[{ "node": "Ping /api/health", "type": "main", "index": 0 }]]
+    },
+    "Ping /api/health": {
+      "main": [
+        [{ "node": "Ingestion muette > 2h ?", "type": "main", "index": 0 }],
+        [{ "node": "Alerte (à personnaliser)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ingestion muette > 2h ?": {
+      "main": [
+        [{ "node": "Alerte (à personnaliser)", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}
