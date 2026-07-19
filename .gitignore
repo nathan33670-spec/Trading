@@ -1,0 +1,23 @@
+# Secrets & config locale — ne JAMAIS commiter
+.env
+secrets/
+!secrets/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Node / front
+node_modules/
+web/dist/
+
+# Données locales
+*.db
+*.sqlite3
+
+# Divers
+.DS_Store

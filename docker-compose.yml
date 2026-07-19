@@ -1,0 +1,49 @@
+# NewsTrader — stack complète pour NAS (Docker / docker compose)
+#
+#   cp .env.example .env   # puis remplir MASTER_KEY, API_TOKEN…
+#   docker compose up -d --build
+#
+# La PWA est servie sur http://<NAS>:${WEB_PORT:-8480}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-newstrader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-newstrader}
+      POSTGRES_DB: ${POSTGRES_DB:-newstrader}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-newstrader}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  core:
+    build: ./core
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-newstrader}:${POSTGRES_PASSWORD:-newstrader}@db:5432/${POSTGRES_DB:-newstrader}
+      API_TOKEN: ${API_TOKEN}
+      MASTER_KEY: ${MASTER_KEY}
+      SECRETS_FILE: /secrets/credentials.enc.json
+      START_CAPITAL: ${START_CAPITAL:-10000}
+      TZ: ${TZ:-Europe/Paris}
+    volumes:
+      - ./secrets:/secrets
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    depends_on:
+      - core
+    ports:
+      - "${WEB_PORT:-8480}:80"
+
+volumes:
+  db_data:
