@@ -45,9 +45,9 @@ cp .env.example .env
 ```
 
 Dans `.env`, renseignez :
-- `MASTER_KEY` : générez-la avec
-  `docker run --rm python:3.12-slim python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
-  (ou `python -m app.secrets gen-key` si Python est installé)
+- `MASTER_KEY` : générez-la avec `openssl rand -base64 32 | tr '+/' '-_'`
+  (ou, après `docker compose build core` :
+  `docker compose run --rm core python -m app.secrets gen-key`)
 - `API_TOKEN` : `openssl rand -hex 32` — c'est le mot de passe de la PWA et de n8n
 - changez `POSTGRES_PASSWORD`
 
