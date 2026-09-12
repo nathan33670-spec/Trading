@@ -18,6 +18,15 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Autonomie : clé maître et clés Web Push générées si absentes
+    from .secrets import bootstrap_master_key, ensure_vapid_keys
+
+    bootstrap_master_key()
+    try:
+        ensure_vapid_keys()
+    except Exception:
+        logging.getLogger(__name__).exception("Génération des clés VAPID impossible")
+
     init_db()
 
     # Seed de la config de risque (ligne unique)
@@ -44,5 +53,16 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="NewsTrader Core", lifespan=lifespan)
+app = FastAPI(title="NewsTrader Core", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(router)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers.setdefault("Cache-Control", "no-store")
+    return resp

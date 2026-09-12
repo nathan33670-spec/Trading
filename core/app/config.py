@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     # Durée de validité d'un signal non exécuté (minutes)
     signal_ttl_min: int = 90
 
+    # Watchdog interne : alerte push si aucune news ingérée pendant ce délai
+    watchdog_interval_min: int = 15
+    watchdog_news_silence_min: int = 120
+
+    # Synthèses planifiées (heure locale, fuseau `tz`)
+    report_weekly_day: str = "sun"
+    report_weekly_hour: int = 19
+    report_monthly_day: int = 1
+    report_monthly_hour: int = 9
+
 
 @lru_cache
 def get_settings() -> Settings:

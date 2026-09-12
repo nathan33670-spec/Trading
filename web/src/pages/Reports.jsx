@@ -36,7 +36,7 @@ export default function Reports() {
 
       {reports.length === 0 && (
         <Empty>
-          Pas encore de synthèse. n8n en génère une chaque dimanche soir
+          Pas encore de synthèse. Le bot en génère une chaque dimanche soir
           et le 1er de chaque mois.
         </Empty>
       )}

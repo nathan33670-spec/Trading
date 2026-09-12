@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, clearToken, enablePush } from "../api";
 import { Card, Empty, Switch } from "../components";
+import AdminKeys from "./AdminKeys";
 
 const SLIDERS = [
   ["risk_per_trade_pct", "Risque par trade", 0.1, 5, 0.1, "%"],
@@ -113,6 +114,8 @@ export default function Settings({ onSaved }) {
         </div>
         {pushState && <div className="small" style={{ marginTop: 10 }}>{pushState}</div>}
       </Card>
+
+      <AdminKeys />
 
       <Card title="Session">
         <button

@@ -9,6 +9,8 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-newstrader}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-newstrader}
@@ -24,22 +26,34 @@ services:
   core:
     build: ./core
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       db:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-newstrader}:${POSTGRES_PASSWORD:-newstrader}@db:5432/${POSTGRES_DB:-newstrader}
       API_TOKEN: ${API_TOKEN}
-      MASTER_KEY: ${MASTER_KEY}
+      MASTER_KEY: ${MASTER_KEY:-}   # vide = générée automatiquement au 1er démarrage
       SECRETS_FILE: /secrets/credentials.enc.json
       START_CAPITAL: ${START_CAPITAL:-10000}
       TZ: ${TZ:-Europe/Paris}
     volumes:
-      - ./secrets:/secrets
+      - secrets_data:/secrets
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   web:
     build: ./web
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - core
     ports:
@@ -47,3 +61,4 @@ services:
 
 volumes:
   db_data:
+  secrets_data:

@@ -19,7 +19,11 @@ def send_to_all(db: Session, title: str, body: str, tag: str = "newstrader") -> 
         log.warning("vapid_private_key manquante : notification '%s' non envoyée", title)
         return 0
 
-    from pywebpush import WebPushException, webpush  # import paresseux
+    try:
+        from pywebpush import WebPushException, webpush  # import paresseux
+    except ImportError:  # jamais bloquant pour le flux de trading
+        log.warning("pywebpush indisponible : notification '%s' non envoyée", title)
+        return 0
 
     subs = db.scalars(select(PushSubscription)).all()
     payload = json.dumps({"title": title, "body": body, "tag": tag})

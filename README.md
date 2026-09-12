@@ -24,16 +24,15 @@ votre téléphone à chaque trade — avec synthèses hebdomadaires et mensuelle
    PWA (téléphone) ◄────┤            courtiers : Paper (défaut)
    notifications push   │            Trading212 (actions/ETF, live)
                         │            Kraken (crypto, live)
-   n8n ── synthèses ────┘
-        ── watchdog
+   synthèses hebdo/     │
+   mensuelles + watchdog┘  (intégrés au core)
 ```
 
 | Service | Rôle |
 |---|---|
 | `db` | PostgreSQL — news, signaux, trades, P&L, config de risque |
-| `core` | FastAPI — ingestion, analyse LLM, risque, exécution, API, Web Push |
+| `core` | FastAPI — ingestion, analyse LLM, risque, exécution, API, Web Push, synthèses planifiées, watchdog |
 | `web` | PWA React servie par nginx (proxy `/api` → core) |
-| n8n (le vôtre) | synthèses hebdo/mensuelles + watchdog |
 
 ## Installation sur le NAS
 
@@ -45,28 +44,43 @@ cp .env.example .env
 ```
 
 Dans `.env`, renseignez :
-- `MASTER_KEY` : générez-la avec
-  `docker run --rm python:3.12-slim python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
-  (ou `python -m app.secrets gen-key` si Python est installé)
-- `API_TOKEN` : `openssl rand -hex 32` — c'est le mot de passe de la PWA et de n8n
+- `API_TOKEN` : `openssl rand -hex 32` — c'est le mot de passe de la PWA
 - changez `POSTGRES_PASSWORD`
+- `MASTER_KEY` (optionnelle) : laissée vide, elle est générée automatiquement
+  au premier démarrage. La fournir (`openssl rand -base64 32 | tr '+/' '-_'`)
+  la sépare des données chiffrées, ce qui est un cran plus sûr.
 
-### 2. Stocker les clés API (chiffrées)
-
-Les credentials vivent dans `secrets/credentials.enc.json`, **chiffré**
-(Fernet) avec votre `MASTER_KEY`, fichier en `chmod 600`, jamais commité.
+### 2. Lancer
 
 ```bash
-docker compose build core
+docker compose up -d --build
+```
+
+La PWA est disponible sur `http://<IP-du-NAS>:8480` (port modifiable via
+`WEB_PORT`). Connectez-vous avec votre `API_TOKEN`. Les clés Web Push
+(notifications) sont générées automatiquement au premier démarrage.
+
+### 3. Saisir les clés API — dans l'app, rien en ligne de commande
+
+**Réglages → Clés API (admin)** : collez chaque clé dans son champ. Elles sont
+chiffrées côté serveur (Fernet, volume Docker dédié) et **ne redescendent
+jamais dans le navigateur** — seul leur statut et les 4 derniers caractères
+s'affichent. La même page montre en direct quel modèle joue l'analyste et
+lequel donne le second avis.
+
+<details>
+<summary>Alternative en SSH (équivalente)</summary>
+
+```bash
 docker compose run --rm core python -m app.secrets set google_api_key
 docker compose run --rm core python -m app.secrets set claude_code_oauth_token
 docker compose run --rm core python -m app.secrets set finnhub_api_key
-docker compose run --rm core python -m app.secrets gen-vapid   # clés Web Push
-# plus tard, pour le mode réel :
-docker compose run --rm core python -m app.secrets set trading212_api_key
-docker compose run --rm core python -m app.secrets set kraken_api_key
-docker compose run --rm core python -m app.secrets set kraken_api_secret
 ```
+</details>
+
+> Migration depuis une installation antérieure (dossier `./secrets` monté en
+> bind) : les secrets vivent désormais dans le volume Docker `secrets_data` —
+> re-saisissez simplement vos clés dans la PWA après la mise à jour.
 
 ### 💰 Coût zéro : tout tient dans vos abonnements existants
 
@@ -96,14 +110,9 @@ CLI Claude Code puisent dans le quota de votre abonnement Pro, partagé avec
 votre propre usage — le bot ne l'appelle que pour les rares signaux, donc
 l'impact est minime.
 
-### 3. Lancer
-
-```bash
-docker compose up -d --build
-```
-
-La PWA est disponible sur `http://<IP-du-NAS>:8480` (port modifiable via
-`WEB_PORT`). Connectez-vous avec votre `API_TOKEN`.
+> ℹ️ Un abonnement Gemini (Google AI Pro/Advanced) ne change rien ici : c'est
+> une offre grand public, séparée de l'API. La clé AI Studio est gratuite de
+> toute façon.
 
 ### 4. Installer l'app sur le téléphone
 
@@ -121,21 +130,43 @@ La PWA est disponible sur `http://<IP-du-NAS>:8480` (port modifiable via
 > (Synology : Portail d'applications ; sinon Caddy/Traefik) avec certificat
 > Let's Encrypt. N'exposez jamais le port en HTTP nu sur internet.
 
-### 5. Brancher n8n
+### 5. C'est tout — synthèses et watchdog sont intégrés
 
-1. Importez les deux workflows du dossier `n8n/` dans votre n8n.
-2. Ajoutez la variable d'environnement `NEWSTRADER_API_TOKEN` (= `API_TOKEN`) à n8n.
-3. Si n8n tourne dans un autre réseau Docker que la stack, remplacez
-   `http://core:8000` par `http://<IP-du-NAS>:8480` dans les nœuds HTTP
-   (nginx proxyfie `/api` vers le core).
-4. Dans le watchdog, remplacez le nœud « Alerte » par votre canal préféré.
+Aucun outil externe à brancher, le core fait tout lui-même :
 
-Ce que font les workflows :
-- **Synthèses** : dimanche 19h (hebdo) et le 1er du mois (mensuelle) — le core
-  calcule P&L, taux de réussite, meilleur/pire trade, fait rédiger un
-  commentaire par Claude et **pousse le tout sur votre téléphone**.
-- **Watchdog** : toutes les 15 min, vérifie que le core répond et que
-  l'ingestion de news n'est pas muette depuis plus de 2h.
+- **Synthèses** : dimanche 19h (hebdo) et le 1er du mois à 9h (mensuelle) — le
+  core calcule P&L, taux de réussite, meilleur/pire trade, fait rédiger un
+  commentaire par le LLM et **pousse le tout sur votre téléphone**. Horaires
+  réglables via `REPORT_WEEKLY_DAY/HOUR` et `REPORT_MONTHLY_DAY/HOUR`.
+- **Watchdog** : toutes les 15 min, le core vérifie que l'ingestion de news
+  n'est pas muette depuis plus de 2h (flux RSS morts, panne réseau…) et vous
+  alerte par notification push — une seule alerte par incident. Réglable via
+  `WATCHDOG_INTERVAL_MIN` et `WATCHDOG_NEWS_SILENCE_MIN`.
+- **Crash du core** : couvert par Docker — `restart: unless-stopped` relance le
+  conteneur, et le healthcheck rend l'état visible dans `docker compose ps`.
+
+## Durcissement
+
+L'app est pensée pour un réseau local ou un VPN, mais elle est durcie comme si
+elle était exposée :
+
+- **Authentification** : comparaison du jeton à temps constant ; verrouillage
+  d'IP après 5 échecs (15 min), doublé d'un `limit_req` nginx sur le login.
+- **Clés API write-only** : saisies dans la PWA, chiffrées (Fernet) dans un
+  volume Docker dédié (`secrets_data`, fichier en `chmod 600`), jamais
+  renvoyées au navigateur — statut et 4 derniers caractères seulement.
+- **HTTP** : en-têtes de sécurité (CSP, `nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy`), `server_tokens off`, corps de requête limité à 64 ko,
+  documentation OpenAPI désactivée, réponses API en `no-store`.
+- **Conteneurs** : le core tourne **non-root** avec `cap_drop: ALL` ;
+  `no-new-privileges` sur les trois services ; healthchecks + `restart:
+  unless-stopped`.
+- Sauvegarde des secrets :
+  `docker run --rm -v trading_secrets_data:/s alpine tar cz -C /s . > secrets-backup.tgz`
+  (à conserver hors du NAS, comme la base).
+
+Cela reste une défense en profondeur, pas une invitation : **n'exposez jamais
+le port en HTTP nu sur internet** — Tailscale ou reverse proxy HTTPS.
 
 ## Fonctionnement
 
