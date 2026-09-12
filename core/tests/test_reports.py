@@ -51,3 +51,16 @@ def test_compute_stats_empty(db):
     stats = compute_stats(db, end - timedelta(days=7), end)
     assert stats["trades"] == 0
     assert stats["win_rate"] == 0.0
+
+
+def test_generate_scheduled_idempotent(db, monkeypatch):
+    import app.reports.service as service
+
+    monkeypatch.setattr(service, "write_commentary", lambda stats, kind: "commentaire test")
+    monkeypatch.setattr(service, "send_to_all", lambda *a, **k: 0)
+
+    first = service.generate_scheduled(db, "weekly")
+    assert first is not None
+
+    # Le déclenchement suivant sur la même période (redémarrage…) ne duplique pas
+    assert service.generate_scheduled(db, "weekly") is None

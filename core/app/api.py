@@ -1,4 +1,4 @@
-"""API REST consommée par la PWA et par n8n."""
+"""API REST consommée par la PWA."""
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -38,7 +38,7 @@ def require_token(
         raise HTTPException(status_code=401, detail="jeton API invalide")
 
 
-# ── Santé (public, pour le watchdog n8n) ─────────────────────────────────────
+# ── Santé (public : healthcheck Docker / supervision externe) ────────────────
 
 @router.get("/health")
 def health(db: Session = Depends(get_db)):

@@ -81,3 +81,16 @@ def generate_report(db: Session, kind: str, notify: bool = True) -> Report:
             tag=f"report-{report.id}",
         )
     return report
+
+
+def generate_scheduled(db: Session, kind: str) -> Report | None:
+    """Génération déclenchée par le scheduler : ignore la période déjà couverte
+    (synthèse générée manuellement, ou redémarrage du conteneur)."""
+    start, _ = _period(kind, utcnow())
+    existing = db.scalar(
+        select(Report).where(Report.kind == kind, Report.period_start == start)
+    )
+    if existing:
+        log.info("Synthèse %s déjà présente pour la période débutant le %s", kind, start.date())
+        return None
+    return generate_report(db, kind)

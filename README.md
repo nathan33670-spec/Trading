@@ -24,16 +24,15 @@ votre téléphone à chaque trade — avec synthèses hebdomadaires et mensuelle
    PWA (téléphone) ◄────┤            courtiers : Paper (défaut)
    notifications push   │            Trading212 (actions/ETF, live)
                         │            Kraken (crypto, live)
-   n8n ── synthèses ────┘
-        ── watchdog
+   synthèses hebdo/     │
+   mensuelles + watchdog┘  (intégrés au core)
 ```
 
 | Service | Rôle |
 |---|---|
 | `db` | PostgreSQL — news, signaux, trades, P&L, config de risque |
-| `core` | FastAPI — ingestion, analyse LLM, risque, exécution, API, Web Push |
+| `core` | FastAPI — ingestion, analyse LLM, risque, exécution, API, Web Push, synthèses planifiées, watchdog |
 | `web` | PWA React servie par nginx (proxy `/api` → core) |
-| n8n (le vôtre) | synthèses hebdo/mensuelles + watchdog |
 
 ## Installation sur le NAS
 
@@ -48,7 +47,7 @@ Dans `.env`, renseignez :
 - `MASTER_KEY` : générez-la avec `openssl rand -base64 32 | tr '+/' '-_'`
   (ou, après `docker compose build core` :
   `docker compose run --rm core python -m app.secrets gen-key`)
-- `API_TOKEN` : `openssl rand -hex 32` — c'est le mot de passe de la PWA et de n8n
+- `API_TOKEN` : `openssl rand -hex 32` — c'est le mot de passe de la PWA
 - changez `POSTGRES_PASSWORD`
 
 ### 2. Stocker les clés API (chiffrées)
@@ -121,21 +120,20 @@ La PWA est disponible sur `http://<IP-du-NAS>:8480` (port modifiable via
 > (Synology : Portail d'applications ; sinon Caddy/Traefik) avec certificat
 > Let's Encrypt. N'exposez jamais le port en HTTP nu sur internet.
 
-### 5. Brancher n8n
+### 5. C'est tout — synthèses et watchdog sont intégrés
 
-1. Importez les deux workflows du dossier `n8n/` dans votre n8n.
-2. Ajoutez la variable d'environnement `NEWSTRADER_API_TOKEN` (= `API_TOKEN`) à n8n.
-3. Si n8n tourne dans un autre réseau Docker que la stack, remplacez
-   `http://core:8000` par `http://<IP-du-NAS>:8480` dans les nœuds HTTP
-   (nginx proxyfie `/api` vers le core).
-4. Dans le watchdog, remplacez le nœud « Alerte » par votre canal préféré.
+Aucun outil externe à brancher, le core fait tout lui-même :
 
-Ce que font les workflows :
-- **Synthèses** : dimanche 19h (hebdo) et le 1er du mois (mensuelle) — le core
-  calcule P&L, taux de réussite, meilleur/pire trade, fait rédiger un
-  commentaire par Claude et **pousse le tout sur votre téléphone**.
-- **Watchdog** : toutes les 15 min, vérifie que le core répond et que
-  l'ingestion de news n'est pas muette depuis plus de 2h.
+- **Synthèses** : dimanche 19h (hebdo) et le 1er du mois à 9h (mensuelle) — le
+  core calcule P&L, taux de réussite, meilleur/pire trade, fait rédiger un
+  commentaire par le LLM et **pousse le tout sur votre téléphone**. Horaires
+  réglables via `REPORT_WEEKLY_DAY/HOUR` et `REPORT_MONTHLY_DAY/HOUR`.
+- **Watchdog** : toutes les 15 min, le core vérifie que l'ingestion de news
+  n'est pas muette depuis plus de 2h (flux RSS morts, panne réseau…) et vous
+  alerte par notification push — une seule alerte par incident. Réglable via
+  `WATCHDOG_INTERVAL_MIN` et `WATCHDOG_NEWS_SILENCE_MIN`.
+- **Crash du core** : couvert par Docker — `restart: unless-stopped` relance le
+  conteneur, et le healthcheck rend l'état visible dans `docker compose ps`.
 
 ## Fonctionnement
 
