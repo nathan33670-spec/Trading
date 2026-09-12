@@ -11,6 +11,10 @@ os.environ.setdefault("RUN_SCHEDULER", "0")
 os.environ.setdefault("SECRETS_FILE", f"{_tmp}/credentials.enc.json")
 os.environ.setdefault("START_CAPITAL", "10000")
 
+from cryptography.fernet import Fernet  # noqa: E402
+
+os.environ.setdefault("MASTER_KEY", Fernet.generate_key().decode())
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest

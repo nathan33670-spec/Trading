@@ -26,6 +26,31 @@ from cryptography.fernet import Fernet
 from .config import get_settings
 
 
+# Registre des clés gérables depuis l'interface d'admin de la PWA.
+# Les clés VAPID n'y figurent pas : générées automatiquement au démarrage.
+KNOWN_SECRETS: list[dict] = [
+    {"name": "google_api_key", "label": "Clé API Gemini (AI Studio)",
+     "category": "Analyse LLM",
+     "help": "aistudio.google.com → Get API key — quota gratuit, analyste par défaut"},
+    {"name": "claude_code_oauth_token", "label": "Jeton Claude Code (abonnement Pro)",
+     "category": "Analyse LLM",
+     "help": "`claude setup-token` sur un ordinateur connecté à votre compte Claude"},
+    {"name": "anthropic_api_key", "label": "Clé API Anthropic (payante, optionnelle)",
+     "category": "Analyse LLM",
+     "help": "console.anthropic.com — uniquement si vous préférez l'API facturée"},
+    {"name": "finnhub_api_key", "label": "Clé Finnhub",
+     "category": "Données de marché",
+     "help": "finnhub.io — gratuit, prix des actions + news"},
+    {"name": "trading212_api_key", "label": "Clé Trading212",
+     "category": "Courtiers (mode réel)",
+     "help": "app Trading212 → Réglages → API — commencez par un compte Practice"},
+    {"name": "kraken_api_key", "label": "Clé Kraken",
+     "category": "Courtiers (mode réel)", "help": "kraken.com → Settings → API"},
+    {"name": "kraken_api_secret", "label": "Secret Kraken",
+     "category": "Courtiers (mode réel)", "help": "généré avec la clé Kraken"},
+]
+
+
 class SecretStore:
     def __init__(self, path: str | None = None, master_key: str | None = None):
         s = get_settings()
@@ -65,6 +90,11 @@ class SecretStore:
         data[name] = value
         self._save(data)
 
+    def delete(self, name: str) -> None:
+        data = dict(self._load())
+        data.pop(name, None)
+        self._save(data)
+
     def names(self) -> list[str]:
         return sorted(self._load().keys())
 
@@ -72,11 +102,66 @@ class SecretStore:
 _store: SecretStore | None = None
 
 
-def get_secret(name: str, default: str = "") -> str:
+def _get_store() -> SecretStore:
     global _store
     if _store is None:
         _store = SecretStore()
-    return _store.get(name, default)
+    return _store
+
+
+def get_secret(name: str, default: str = "") -> str:
+    return _get_store().get(name, default)
+
+
+def set_secret(name: str, value: str) -> None:
+    _get_store().set(name, value)
+
+
+def delete_secret(name: str) -> None:
+    _get_store().delete(name)
+
+
+def secret_hint(name: str) -> str:
+    """Aperçu non sensible d'un secret : ses 4 derniers caractères seulement."""
+    value = get_secret(name)
+    if not value:
+        return ""
+    return f"…{value[-4:]}" if len(value) > 8 else "•••"
+
+
+def bootstrap_master_key() -> None:
+    """Autonomie : sans MASTER_KEY dans .env, une clé est générée au premier
+    démarrage et conservée à côté du fichier de secrets (chmod 600).
+
+    Fournir MASTER_KEY via .env reste préférable : la clé est alors séparée
+    des données chiffrées.
+    """
+    s = get_settings()
+    if s.master_key:
+        return
+    key_file = Path(s.secrets_file).parent / "master.key"
+    if key_file.exists():
+        key = key_file.read_text().strip()
+    else:
+        key = Fernet.generate_key().decode()
+        key_file.parent.mkdir(parents=True, exist_ok=True)
+        key_file.write_text(key + "\n")
+        os.chmod(key_file, 0o600)
+    s.master_key = key
+    global _store
+    _store = None  # le prochain accès recrée le store avec la clé
+
+
+def ensure_vapid_keys() -> None:
+    """Autonomie : génère les clés Web Push au premier démarrage si absentes."""
+    store = _get_store()
+    if store.get("vapid_public_key") and store.get("vapid_private_key"):
+        return
+    if not store._fernet:
+        return  # pas de clé maître : on n'écrit rien
+    public, private = _gen_vapid()
+    store.set("vapid_public_key", public)
+    store.set("vapid_private_key", private)
 
 
 def _gen_vapid() -> tuple[str, str]:
@@ -99,6 +184,7 @@ def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__)
         return 1
+    bootstrap_master_key()  # même autonomie que le serveur : clé auto si absente
     cmd = argv[0]
     if cmd == "gen-key":
         print(Fernet.generate_key().decode())

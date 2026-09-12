@@ -1,7 +1,7 @@
 """API REST consommée par la PWA."""
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,6 +21,7 @@ from .db.models import (
 from .db.session import get_db
 from .news.ingest import ingest, title_hash
 from .portfolio import service as portfolio
+from .security import check_not_locked, client_ip, record_failure, record_success, tokens_match
 from .ws import manager
 
 router = APIRouter(prefix="/api")
@@ -29,13 +30,18 @@ router = APIRouter(prefix="/api")
 # ── Authentification (jeton partagé) ─────────────────────────────────────────
 
 def require_token(
+    request: Request,
     authorization: str = Header(default=""),
     x_api_token: str = Header(default=""),
 ) -> None:
+    ip = client_ip(request)
+    check_not_locked(ip)
     expected = get_settings().api_token
     provided = x_api_token or authorization.removeprefix("Bearer ").strip()
-    if not expected or provided != expected:
+    if not tokens_match(provided, expected):
+        record_failure(ip)
         raise HTTPException(status_code=401, detail="jeton API invalide")
+    record_success(ip)
 
 
 # ── Santé (public : healthcheck Docker / supervision externe) ────────────────
@@ -54,9 +60,13 @@ class LoginBody(BaseModel):
 
 
 @router.post("/auth/login")
-def login(body: LoginBody):
-    if body.token != get_settings().api_token:
+def login(body: LoginBody, request: Request):
+    ip = client_ip(request)
+    check_not_locked(ip)
+    if not tokens_match(body.token, get_settings().api_token):
+        record_failure(ip)
         raise HTTPException(status_code=401, detail="jeton invalide")
+    record_success(ip)
     return {"ok": True}
 
 
@@ -332,11 +342,70 @@ def inject_news(body: FakeNewsBody, db: Session = Depends(get_db)):
     }
 
 
+# ── Admin : clés API (write-only) & état des fournisseurs ────────────────────
+
+class SecretValue(BaseModel):
+    value: str = Field(min_length=1, max_length=4096)
+
+
+def _known_secret_or_404(name: str) -> None:
+    from .secrets import KNOWN_SECRETS
+
+    if not any(item["name"] == name for item in KNOWN_SECRETS):
+        raise HTTPException(status_code=404, detail="clé inconnue")
+
+
+@router.get("/admin/secrets", dependencies=[Depends(require_token)])
+def admin_list_secrets():
+    """Les valeurs ne sortent jamais : uniquement le statut et les 4 derniers caractères."""
+    from .secrets import KNOWN_SECRETS, get_secret, secret_hint
+
+    return [
+        {**item, "configured": bool(get_secret(item["name"])), "hint": secret_hint(item["name"])}
+        for item in KNOWN_SECRETS
+    ]
+
+
+@router.put("/admin/secrets/{name}", dependencies=[Depends(require_token)])
+def admin_set_secret(name: str, body: SecretValue):
+    _known_secret_or_404(name)
+    from .secrets import set_secret
+
+    set_secret(name, body.value.strip())
+    return {"ok": True}
+
+
+@router.delete("/admin/secrets/{name}", dependencies=[Depends(require_token)])
+def admin_delete_secret(name: str):
+    _known_secret_or_404(name)
+    from .secrets import delete_secret
+
+    delete_secret(name)
+    return {"ok": True}
+
+
+@router.get("/admin/status", dependencies=[Depends(require_token)])
+def admin_status():
+    from .analysis.llm import _AVAILABILITY, PROVIDERS
+    from .secrets import get_secret
+
+    providers = {name: check() for name, check in _AVAILABILITY.items()}
+    analyst = next((p for p in PROVIDERS if providers[p]), None)
+    second = next((p for p in PROVIDERS if providers[p] and p != analyst), None)
+    return {
+        "providers": providers,
+        "analyst": analyst,
+        "second_opinion": second,
+        "push_ready": bool(get_secret("vapid_private_key")),
+        "market_data": bool(get_secret("finnhub_api_key")),
+    }
+
+
 # ── WebSocket temps réel ─────────────────────────────────────────────────────
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
-    if token != get_settings().api_token:
+    if not tokens_match(token, get_settings().api_token):
         await ws.close(code=4401)
         return
     await manager.connect(ws)
