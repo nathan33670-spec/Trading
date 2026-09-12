@@ -43,19 +43,19 @@ Sans git (une archive suffit) :
 ```bash
 curl -sfL https://api.github.com/repos/nathan33670-spec/Trading/tarball/main | tar xz
 mv nathan33670-spec-Trading-* Trading && cd Trading
-cp .env.example .env
+sh scripts/setup-env.sh
 ```
+
+`setup-env.sh` crée le `.env` sans éditeur de texte : il génère le mot de
+passe Postgres et **affiche votre `API_TOKEN`** — notez-le, c'est le mot de
+passe de connexion à la PWA. La `MASTER_KEY` reste vide et sera générée
+automatiquement au premier démarrage (la fournir vous-même dans `.env` —
+`openssl rand -base64 32 | tr '+/' '-_'` — la sépare des données chiffrées,
+un cran plus sûr).
 
 (Avec git si vous l'avez : `git clone https://github.com/nathan33670-spec/Trading.git && cd Trading` —
 le self-update utilisera alors `git pull` au lieu de l'archive. Si le dépôt
 repasse en privé un jour : jeton lecture seule dans `GITHUB_TOKEN` du `.env`.)
-
-Dans `.env`, renseignez :
-- `API_TOKEN` : `openssl rand -hex 32` — c'est le mot de passe de la PWA
-- changez `POSTGRES_PASSWORD`
-- `MASTER_KEY` (optionnelle) : laissée vide, elle est générée automatiquement
-  au premier démarrage. La fournir (`openssl rand -base64 32 | tr '+/' '-_'`)
-  la sépare des données chiffrées, ce qui est un cran plus sûr.
 
 ### 2. Lancer
 
