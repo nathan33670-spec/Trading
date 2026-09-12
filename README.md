@@ -1,10 +1,15 @@
 # NewsTrader 📈
 
-Bot de trading piloté par l'actualité, auto-hébergé sur votre NAS.
-Il lit les news financières en continu, les fait analyser par **Claude** (avec
-**Gemini** en contre-expertise), applique un **moteur de risque déterministe**
-que vous configurez, exécute les ordres (simulés ou réels), et vous notifie sur
-votre téléphone à chaque trade — avec synthèses hebdomadaires et mensuelles.
+Bot de trading auto-hébergé sur votre NAS, piloté par **deux moteurs** :
+
+- **l'analyse technique** des courbes crypto (cassures, replis en tendance,
+  croisements MACD, rebonds de survente) — déterministe, sans aucune clé API ;
+- **l'actualité financière**, analysée par **Gemini** avec **Claude** en
+  contre-expertise.
+
+Les deux alimentent un **moteur de risque déterministe** que vous configurez
+(enveloppes, stops, frais), qui exécute les ordres (simulés ou réels), gère les
+positions avec un stop suiveur, et vous notifie à chaque trade.
 
 > ## ⚠️ À lire avant tout
 > **Aucun bot ne "gagne de l'argent" garanti.** Le trading comporte un risque
@@ -17,15 +22,16 @@ votre téléphone à chaque trade — avec synthèses hebdomadaires et mensuelle
 ## Architecture
 
 ```
-   RSS / Finnhub ──► core (FastAPI) ──► Claude + Gemini ──► signaux
-                        │                                      │
-                        │              moteur de risque ◄──────┘
-                        │                     │
-   PWA (téléphone) ◄────┤            courtiers : Paper (défaut)
-   notifications push   │            Trading212 (actions/ETF, live)
-                        │            Kraken (crypto, live)
-   synthèses hebdo/     │
-   mensuelles + watchdog┘  (intégrés au core)
+   Bougies Kraken ──► analyse technique ──┐
+   (sans clé API)     (marqueurs, ATR)    │
+                                          ├──► signaux ──► moteur de risque
+   RSS / Finnhub ──► Gemini + Claude ─────┘                      │
+                        │                          enveloppes, taille, frais
+                        │                                        │
+   PWA (téléphone) ◄────┤                  courtiers : Paper (défaut)
+   notifications push   │                  Trading212 (actions/ETF, live)
+                        │                  Kraken (crypto, live)
+   synthèses + watchdog ┘  (intégrés au core)
 ```
 
 | Service | Rôle |
@@ -177,6 +183,40 @@ le port en HTTP nu sur internet** — Tailscale ou reverse proxy HTTPS.
 
 ## Fonctionnement
 
+### Moteur 1 — analyse technique des courbes (crypto, sans clé API)
+
+Toutes les 30 minutes, chaque paire de la watchlist est relue depuis l'API
+publique Kraken (bougies journalières par défaut) et passée au crible de
+détecteurs déterministes :
+
+| Marqueur déclencheur | Ce qu'il repère |
+|---|---|
+| `breakout` | cassure du plus haut 20 bougies **avec** volume > 1,3× la moyenne |
+| `pullback` | repli acheté en tendance (RSI sous 40 puis retour au-dessus de 45 près de l'EMA20) |
+| `macd_cross` | croisement MACD haussier tout frais, au-dessus de zéro |
+| `golden_cross` | EMA20 repassant au-dessus de l'EMA50 |
+| `oversold_bounce` | clôture sous la bande de Bollinger basse, RSI < 30, puis rebond |
+
+Trois principes structurent ces règles (le premier jet produisait ~1 000 signaux
+par mois, soit une fabrique à commissions) :
+
+1. **Des événements, pas des états** — un signal se déclenche sur une transition
+   qui vient d'avoir lieu, jamais sur une situation qui dure.
+2. **Uniquement des bougies closes** — la dernière bougie de l'exchange est en
+   formation ; l'inclure ferait clignoter les détecteurs au gré des ticks.
+3. **Un objectif qui paie les frais** — voir la section Frais ci-dessous.
+
+Un déclencheur seul ne suffit pas : il faut **au moins deux confirmations**
+(tendance de fond, RSI sain, momentum, volume, pente de l'EMA50). Des pénalités
+retirent des points (surachat, résistance proche, volume anémique). Le total
+donne une conviction 0-100 ; stop et objectif sont dérivés de l'**ATR** (la
+volatilité réelle de la paire), jamais de pourcentages fixes.
+
+L'onglet **Marché** montre, paire par paire, ce que le moteur voit et pourquoi
+il n'agit pas — la réponse à « pourquoi le bot ne fait rien ? ».
+
+### Moteur 2 — actualité
+
 1. **Ingestion** (toutes les 5 min) : flux RSS (CoinDesk, Cointelegraph, Yahoo
    Finance, MarketWatch, Investing) + Finnhub. Dédoublonnage par empreinte de titre.
 2. **Pré-filtre** : seules les news contenant des termes à fort impact
@@ -187,26 +227,96 @@ le port en HTTP nu sur internet** — Tailscale ou reverse proxy HTTPS.
    0-100, stop, objectif, raisonnement). Un **second modèle différent** (Claude
    via la CLI Claude Code par défaut) contre-expertise chaque signal : il faut
    **l'accord des deux** (ou une conviction ≥ 80 si un seul modèle est configuré).
-4. **Moteur de risque** (jamais le LLM — 100 % déterministe) :
-   - taille de position = `capital × risque% ÷ distance au stop`
-   - plafonds : perte max/jour, perte max/semaine (kill-switch), nb de
-     positions, exposition par actif, cash disponible
-   - stop-loss et objectif **obligatoires** sur chaque trade
-5. **Exécution** : Paper par défaut. Les bascules « réel » (Trading212 /
-   Kraken) sont des interrupteurs distincts dans Réglages, avec confirmation.
-6. **Suivi** : toutes les minutes, stops et objectifs sont contrôlés ; chaque
-   ouverture/clôture déclenche une notification push avec le résultat.
+### Moteur de risque — commun aux deux, jamais un LLM
+
+Tout signal, technique ou issu d'une actualité, passe par les mêmes contrôles :
+
+- taille de position = `capital × risque% ÷ distance au stop` ;
+- **enveloppes** : part maximale du portefeuille engageable, au total et par
+  classe d'actif — elles *réduisent* la position au lieu de la refuser, et le
+  capital hors enveloppe n'est jamais touché ;
+- plafonds : perte max/jour, perte max/semaine (kill-switch), nombre de
+  positions, exposition par actif, cash disponible ;
+- **rentabilité nette de frais** : un trade dont le gain visé ne couvre pas
+  plusieurs fois l'aller-retour de commissions est refusé ;
+- stop-loss et objectif **obligatoires** sur chaque trade.
+
+### Exécution et suivi
+
+- **Paper par défaut**, aux prix réels, **frais réels inclus**. Les bascules
+  « réel » (Trading212 / Kraken) sont des interrupteurs distincts, avec
+  confirmation.
+- **Stop suiveur** : dès que le gain atteint 2× le risque initial, le stop
+  remonte au point mort *frais compris* (le trade ne peut plus perdre), puis
+  suit le plus haut atteint à 1,5× le risque.
+- Toutes les minutes : stops, objectifs et stops suiveurs sont contrôlés ;
+  chaque ouverture/clôture déclenche une notification push.
+
+## 💸 Frais : la contrainte qui décide de tout
+
+Barème par défaut : **Revolut, compte Standard — 1,49 % par transaction,
+minimum 0,99 €** (modifiable dans Réglages → Frais, vérifiez-le chez votre
+courtier, les barèmes changent).
+
+Conséquence à avoir en tête : **un aller-retour coûte ~3 %**. Viser +2 % est
+donc une perte garantie, et sur une petite position le plancher de 0,99 €
+devient énorme (aller-retour de 6,6 % sur 30 €). C'est pourquoi :
+
+- les frais sont appliqués **aussi en paper trading** — sinon les résultats
+  simulés sont une illusion, et le P&L affiché est net ;
+- le moteur de risque refuse tout trade dont l'objectif ne vaut pas au moins
+  3× l'aller-retour (réglable) ;
+- l'unité de temps par défaut est **le jour**, pas l'heure : moins de trades,
+  des mouvements plus amples, moins de frottement.
+
+## 📊 Le backtest — mesurer plutôt que croire
+
+L'onglet **Marché** contient un backtest qui rejoue les règles réelles sur
+l'historique réel, frais compris, avec des hypothèses pessimistes (entrée à
+l'ouverture de la bougie suivante ; si une bougie touche stop et objectif, on
+suppose que le stop est parti en premier).
+
+**Résultat mesuré au moment de l'écriture de ce moteur** (10 paires EUR,
+bougies journalières, ~510 jours, mise de 1 000 €/trade, frais Revolut) :
+
+| Mesure | Valeur |
+|---|---|
+| Trades | 22 |
+| Taux de réussite | 32 % |
+| Résultat **brut** | −392 € |
+| Frais | −650 € |
+| Résultat **net** | **−1 042 €** |
+
+À lire honnêtement : **la stratégie perd de l'argent sur cette période**, et
+même avant frais. La période testée est un marché baissier sévère (9 paires sur
+10 ont chuté de 10 à 74 %, l'achat-conservation aurait perdu bien davantage), et
+ce bot n'achète qu'à la hausse. Une dizaine de variantes ont été testées (unités
+de temps 4 h et 1 jour, stops de 1,5 à 3,5×ATR, sorties à objectif fixe ou en
+suivi de tendance, filtre de régime BTC) : **toutes négatives sur ces données**.
+
+Ce qui en découle, et qui est la vraie raison d'être du paper trading :
+
+- ne passez **jamais** en réel sans un backtest positif **et** plusieurs
+  semaines de simulation positives ;
+- relancez le backtest régulièrement — il tourne sur les données du jour ;
+- si les chiffres restent négatifs, la bonne décision est de laisser le bot en
+  paper, pas d'augmenter la mise.
 
 ## L'application
 
 - **Dashboard** : valeur du portefeuille, P&L jour/semaine/mois, courbe
-  d'équity 30 jours, positions ouvertes en temps réel, badge PAPER/LIVE.
-- **Signaux** : le raisonnement de chaque analyse (Claude + avis Gemini), et
-  pourquoi un signal a été exécuté ou rejeté (traçabilité complète).
+  d'équity 30 jours, **jauges d'enveloppes**, positions ouvertes, badge PAPER/LIVE.
+- **Marché** : ce que le moteur technique voit sur chaque paire (tendance, RSI,
+  marqueurs repérés avec leur contribution, et la raison de l'inaction), un
+  bouton « Analyser maintenant » et le **backtest** sur données réelles.
+- **Signaux** : le raisonnement de chaque analyse — marqueurs techniques ou
+  actualité + avis du second modèle — et pourquoi un signal a été exécuté ou
+  rejeté (traçabilité complète).
 - **Historique** : tous les trades, filtres, clôture manuelle, export CSV.
 - **Rapports** : synthèses hebdo/mensuelles archivées.
-- **Réglages** : curseurs de risque, kill-switch, bascules paper/réel,
-  activation des notifications.
+- **Réglages** : risque, **enveloppes**, **frais**, moteur technique et
+  watchlist, stop suiveur, kill-switch, bascules paper/réel, clés API,
+  notifications.
 
 ## Mise à jour automatique (self-update)
 
@@ -236,7 +346,8 @@ NAS se met à jour tout seul le lendemain matin → vous êtes notifié.
 ## Passage en réel — checklist
 
 1. ≥ 4-8 semaines de paper trading.
-2. Rapports : P&L net positif, drawdown supportable, assez de trades pour juger.
+2. **Backtest positif** (onglet Marché) — pas seulement l'intuition.
+3. Rapports : P&L net positif, drawdown supportable, assez de trades pour juger.
 3. Commencez petit : `START_CAPITAL` réel modeste, risque à 0,5 %/trade.
 4. Trading212 : testez d'abord avec une clé **Practice** (`T212_ENV=demo`,
    ordres réels sur compte fictif), puis passez `T212_ENV=live` dans
@@ -267,6 +378,12 @@ curl -X POST http://localhost:8000/api/test/inject-news \
 
 ## Limites connues (assumées)
 
+- **L'analyse technique ne couvre que la crypto** : les bougies viennent de
+  l'API publique Kraken, gratuite et sans clé. Finnhub ne donne pas
+  d'historique de bougies en gratuit, donc les actions restent pilotées par
+  l'actualité seule.
+- **Aucun avantage statistique démontré** : voir la section Backtest. Le moteur
+  est correct, mesuré et prudent — il n'est pas prouvé rentable.
 - **Prix des actions** via Finnhub gratuit : tickers US principalement. Les
   ETF/actions EU passent par Trading212 en réel, mais le paper trading actions
   est le plus fiable sur les tickers US.

@@ -246,3 +246,52 @@ table.trades td.num { text-align: right; font-variant-numeric: tabular-nums; fon
   .hero .value { font-size: 54px; }
   .tiles { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ── Marché : lecture technique paire par paire ── */
+.market-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.market-row:last-child { border-bottom: none; }
+.market-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px;
+}
+.market-head b { font-size: 15px; }
+
+.markers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.marker {
+  font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--glass); color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.marker.pos { color: #86efac; border-color: rgba(134, 239, 172, 0.28); }
+.marker.neg { color: #fca5a5; border-color: rgba(252, 165, 165, 0.28); }
+.marker.primary { font-weight: 700; box-shadow: 0 0 12px rgba(34, 211, 238, 0.14); }
+
+.chip.small { padding: 2px 8px; font-size: 11px; }
+
+.small.warn {
+  color: var(--warn);
+  background: rgba(250, 178, 25, 0.08);
+  border: 1px solid rgba(250, 178, 25, 0.25);
+  border-radius: 10px; padding: 9px 11px; margin-top: 10px;
+}
+
+select {
+  width: 100%; padding: 13px 14px; border-radius: 12px; font-family: var(--font);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);
+  color: var(--ink); font-size: 15px;
+}
+select:focus { outline: none; border-color: var(--accent-1); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.15); }
+
+.switch-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent-2); }
+
+/* ── Jauges d'enveloppes ── */
+.gauge { margin-bottom: 14px; }
+.gauge-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13.5px; color: var(--ink-2); margin-bottom: 7px;
+}
+.gauge-head b { color: var(--ink); font-variant-numeric: tabular-nums; font-size: 13px; }
+.gauge .bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+.gauge .bar i { display: block; height: 100%; border-radius: 4px; transition: width 0.3s ease; }

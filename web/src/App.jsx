@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, connectWS, getToken, setToken } from "./api";
 import Dashboard from "./pages/Dashboard";
 import History from "./pages/History";
+import Market from "./pages/Market";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Signals from "./pages/Signals";
 
 const NAV = [
   ["dashboard", "Dashboard", "M3 13h4l3-8 4 14 3-8h4"],
+  ["market", "Marché", "M4 19V5m0 14h16M8 15l3-4 3 3 4-6"],
   ["signals", "Signaux", "M12 3v3m0 12v3m9-9h-3M6 12H3m14.5-5.5l-2 2m-9 9l-2 2m13 0l-2-2m-9-9l-2-2M12 8a4 4 0 100 8 4 4 0 000-8z"],
   ["history", "Historique", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"],
   ["reports", "Rapports", "M9 17v-6m4 6V7m4 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"],
@@ -97,6 +99,7 @@ export default function App() {
 
       <main>
         {tab === "dashboard" && <Dashboard data={dash} />}
+        {tab === "market" && <Market />}
         {tab === "signals" && <Signals />}
         {tab === "history" && <History />}
         {tab === "reports" && <Reports />}

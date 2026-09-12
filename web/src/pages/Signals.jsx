@@ -22,7 +22,9 @@ export default function Signals() {
       <Empty>
         Aucun signal pour l'instant.
         <br />
-        Le bot n'émet un signal que quand une actualité le justifie vraiment.
+        Le bot n'émet un signal que si une actualité ou une configuration
+        technique le justifie vraiment. L'onglet Marché montre ce qu'il observe
+        en attendant.
       </Empty>
     );
 
@@ -33,14 +35,27 @@ export default function Signals() {
         <span className={`chip ${s.direction}`}>{s.direction === "buy" ? "achat" : "vente"}</span>
         <span className={`chip status-${s.status}`}>{STATUS_LABELS[s.status] || s.status}</span>
         <span className="chip">{s.asset_class}</span>
+        <span className="chip small">{s.source === "technical" ? "📈 technique" : "📰 actualité"}</span>
       </div>
 
       <ConvictionBar label="Analyste" value={s.conviction} color="var(--series-1)" />
-      <ConvictionBar
-        label="2ᵉ avis"
-        value={s.gemini_agrees === null ? null : s.gemini_conviction ?? 0}
-        color="var(--series-2)"
-      />
+      {s.source !== "technical" && (
+        <ConvictionBar
+          label="2ᵉ avis"
+          value={s.gemini_agrees === null ? null : s.gemini_conviction ?? 0}
+          color="var(--series-2)"
+        />
+      )}
+
+      {s.markers?.length > 0 && (
+        <div className="markers">
+          {s.markers.map((m) => (
+            <span key={m.code} className={`marker ${m.score > 0 ? "pos" : "neg"} ${m.primary ? "primary" : ""}`}>
+              {m.label} {m.score > 0 ? `+${m.score}` : m.score}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="rationale">{s.rationale}</div>
 

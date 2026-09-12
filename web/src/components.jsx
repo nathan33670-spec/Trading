@@ -17,6 +17,26 @@ export const Tile = ({ label, value, positive }) => (
 
 export const Empty = ({ children }) => <div className="empty">{children}</div>;
 
+/* Jauge d'enveloppe : part engagée du portefeuille face à son plafond. */
+export const Gauge = ({ label, used, max, amount }) => {
+  const pct = max > 0 ? Math.min((used / max) * 100, 100) : 0;
+  const full = used >= max;
+  return (
+    <div className="gauge">
+      <div className="gauge-head">
+        <span>{label}</span>
+        <b>
+          {used} % <span className="muted">/ {max} %</span>
+          {amount != null && <span className="muted"> · {fmtEUR(amount)}</span>}
+        </b>
+      </div>
+      <div className="bar">
+        <i style={{ width: `${pct}%`, background: full ? "var(--warn)" : "var(--accent-grad)" }} />
+      </div>
+    </div>
+  );
+};
+
 export const ConvictionBar = ({ label, value, color }) => (
   <div className="conviction">
     <span style={{ width: 58 }}>{label}</span>

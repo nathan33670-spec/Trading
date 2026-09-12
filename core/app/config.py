@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     ingest_interval_min: int = 5
     analyze_interval_min: int = 5
     monitor_interval_min: int = 1
+    # Scan technique : inutile d'aller plus vite que la bougie analysée
+    scan_interval_min: int = 30
 
     # Durée de validité d'un signal non exécuté (minutes)
     signal_ttl_min: int = 90

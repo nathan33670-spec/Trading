@@ -128,6 +128,24 @@ def dashboard(db: Session = Depends(get_db)):
             "live_trading212": cfg.live_trading212,
             "live_kraken": cfg.live_kraken,
         },
+        "envelopes": {
+            "invested": round(open_value, 2),
+            "invested_pct": round(open_value / equity * 100, 1) if equity > 0 else 0.0,
+            "max_invested_pct": cfg.max_invested_pct,
+            "by_class": [
+                {
+                    "name": name,
+                    "used": round(state.exposure_by_class.get(key, 0.0), 2),
+                    "used_pct": round(state.exposure_by_class.get(key, 0.0) / equity * 100, 1)
+                    if equity > 0 else 0.0,
+                    "max_pct": max_pct,
+                }
+                for name, key, max_pct in (
+                    ("crypto", "crypto", cfg.envelope_crypto_pct),
+                    ("actions / ETF", "stock", cfg.envelope_stock_pct),
+                )
+            ],
+        },
         "currency": settings.base_currency,
     }
 
@@ -145,6 +163,8 @@ def list_signals(limit: int = Query(50, le=200), db: Session = Depends(get_db)):
     return [
         {
             "id": s.id,
+            "source": s.source,
+            "markers": s.markers or [],
             "asset": s.asset,
             "asset_class": s.asset_class.value,
             "direction": s.direction,
@@ -187,6 +207,7 @@ def list_trades(
             "status": t.status.value,
             "pnl": t.pnl,
             "pnl_pct": t.pnl_pct,
+            "fees": round((t.entry_fee or 0) + (t.exit_fee or 0), 2),
             "close_reason": t.close_reason,
             "opened_at": t.opened_at,
             "closed_at": t.closed_at,
@@ -220,6 +241,26 @@ class RiskBody(BaseModel):
     kill_switch: bool
     live_trading212: bool
     live_kraken: bool
+    # Enveloppes
+    max_invested_pct: float = Field(default=60.0, ge=1, le=100)
+    envelope_crypto_pct: float = Field(default=30.0, ge=0, le=100)
+    envelope_stock_pct: float = Field(default=40.0, ge=0, le=100)
+    # Frais
+    fee_crypto_pct: float = Field(default=1.49, ge=0, le=5)
+    fee_crypto_min: float = Field(default=0.99, ge=0, le=50)
+    fee_stock_pct: float = Field(default=0.15, ge=0, le=5)
+    fee_stock_min: float = Field(default=0.0, ge=0, le=50)
+    min_target_fee_ratio: float = Field(default=3.0, ge=0, le=10)
+    # Analyse technique
+    tech_enabled: bool = True
+    tech_min_conviction: int = Field(default=70, ge=0, le=100)
+    tech_timeframe_min: int = Field(default=1440)
+    tech_llm_review: bool = False
+    crypto_watchlist: list[str] = Field(default_factory=list, max_length=40)
+    # Stop suiveur
+    trailing_enabled: bool = True
+    trail_activate_r: float = Field(default=2.0, ge=0.5, le=10)
+    trail_distance_r: float = Field(default=1.5, ge=0.3, le=10)
 
 
 def _risk_dict(cfg: RiskConfig) -> dict:
@@ -233,6 +274,22 @@ def _risk_dict(cfg: RiskConfig) -> dict:
         "kill_switch": cfg.kill_switch,
         "live_trading212": cfg.live_trading212,
         "live_kraken": cfg.live_kraken,
+        "max_invested_pct": cfg.max_invested_pct,
+        "envelope_crypto_pct": cfg.envelope_crypto_pct,
+        "envelope_stock_pct": cfg.envelope_stock_pct,
+        "fee_crypto_pct": cfg.fee_crypto_pct,
+        "fee_crypto_min": cfg.fee_crypto_min,
+        "fee_stock_pct": cfg.fee_stock_pct,
+        "fee_stock_min": cfg.fee_stock_min,
+        "min_target_fee_ratio": cfg.min_target_fee_ratio,
+        "tech_enabled": cfg.tech_enabled,
+        "tech_min_conviction": cfg.tech_min_conviction,
+        "tech_timeframe_min": cfg.tech_timeframe_min,
+        "tech_llm_review": cfg.tech_llm_review,
+        "crypto_watchlist": cfg.crypto_watchlist or [],
+        "trailing_enabled": cfg.trailing_enabled,
+        "trail_activate_r": cfg.trail_activate_r,
+        "trail_distance_r": cfg.trail_distance_r,
     }
 
 
@@ -244,8 +301,11 @@ def get_risk(db: Session = Depends(get_db)):
 @router.put("/settings/risk", dependencies=[Depends(require_token)])
 def put_risk(body: RiskBody, db: Session = Depends(get_db)):
     cfg = portfolio.get_risk_config(db)
-    for key, value in body.model_dump().items():
+    data = body.model_dump()
+    watchlist = [s.strip().upper() for s in data.pop("crypto_watchlist", []) if s.strip()]
+    for key, value in data.items():
         setattr(cfg, key, value)
+    cfg.crypto_watchlist = watchlist
     db.commit()
     return _risk_dict(cfg)
 
@@ -340,6 +400,94 @@ def inject_news(body: FakeNewsBody, db: Session = Depends(get_db)):
         "ingested_hash": title_hash(body.title),
         "signals": [{"id": s.id, "asset": s.asset, "status": s.status.value, "reason": s.status_reason} for s in signals],
     }
+
+
+# ── Marché : ce que le moteur technique voit, paire par paire ────────────────
+
+@router.get("/market", dependencies=[Depends(require_token)])
+def market(db: Session = Depends(get_db)):
+    from .analysis.scanner import watchlist
+    from .db.models import MarketState
+
+    cfg = portfolio.get_risk_config(db)
+    states = {s.symbol: s for s in db.scalars(select(MarketState)).all()}
+    rows = []
+    for symbol in watchlist(cfg):
+        st = states.get(symbol)
+        rows.append({
+            "symbol": symbol,
+            "price": st.price if st else None,
+            "trend": st.trend if st else "",
+            "rsi": st.rsi if st else None,
+            "atr_pct": st.atr_pct if st else None,
+            "conviction": st.conviction if st else 0,
+            "markers": (st.markers or []) if st else [],
+            "decision": st.decision if st else "pas encore analysée",
+            "updated_at": st.updated_at if st else None,
+        })
+    return {
+        "enabled": cfg.tech_enabled,
+        "timeframe_min": cfg.tech_timeframe_min,
+        "min_conviction": cfg.tech_min_conviction,
+        "rows": rows,
+    }
+
+
+@router.post("/market/scan", dependencies=[Depends(require_token)])
+def market_scan(db: Session = Depends(get_db)):
+    """Lance un scan immédiat (le scheduler en fait un toutes les 30 min)."""
+    from .analysis.scanner import scan
+
+    signals = scan(db)
+    return {
+        "signals": [
+            {"asset": s.asset, "conviction": s.conviction, "status": s.status.value,
+             "reason": s.status_reason}
+            for s in signals
+        ]
+    }
+
+
+@router.post("/market/backtest", dependencies=[Depends(require_token)])
+def market_backtest(
+    days: int = Query(180, ge=30, le=720),
+    stake: float = Query(1000.0, gt=0, le=100_000),
+    db: Session = Depends(get_db),
+):
+    """Rejoue la stratégie sur l'historique réel, frais compris.
+
+    C'est la réponse honnête à « est-ce que ça marche ? » : des chiffres
+    mesurés sur les bougies réelles, pas une promesse.
+    """
+    from .analysis import backtest
+    from .analysis.scanner import watchlist
+    from .brokers.fees import FeeSchedule
+
+    cfg = portfolio.get_risk_config(db)
+    fees = FeeSchedule("crypto", pct=cfg.fee_crypto_pct, minimum=cfg.fee_crypto_min)
+    tf = cfg.tech_timeframe_min
+    needed = int(days * 24 * 60 / tf) + backtest.MIN_CANDLES
+
+    results = []
+    for symbol in watchlist(cfg):
+        candles = marketdata.crypto_ohlc(symbol, interval_min=tf)
+        if len(candles) < backtest.MIN_CANDLES + 2:
+            continue
+        results.append(backtest.run(
+            symbol, candles[-needed:] if needed < len(candles) else candles,
+            stake=stake, min_conviction=cfg.tech_min_conviction, fees=fees,
+            trailing=cfg.trailing_enabled,
+            trail_activate_r=cfg.trail_activate_r,
+            trail_distance_r=cfg.trail_distance_r,
+            timeframe=f"{tf}min",
+        ))
+    if not results:
+        raise HTTPException(status_code=503, detail="historique indisponible, réessayer")
+
+    summary = backtest.aggregate(results)
+    summary["stake"] = stake
+    summary["days"] = days
+    return summary
 
 
 # ── Admin : clés API (write-only) & état des fournisseurs ────────────────────

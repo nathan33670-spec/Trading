@@ -1,5 +1,6 @@
-"""Tâches périodiques : ingestion, analyse, monitoring, snapshots equity."""
+"""Tâches périodiques : ingestion, analyse, scan technique, monitoring, snapshots."""
 import logging
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -43,6 +44,12 @@ def _monitor(db):
     monitor_positions(db)
 
 
+def _scan(db):
+    from .analysis.scanner import scan
+
+    scan(db)
+
+
 def _snapshot(db):
     from .portfolio.service import snapshot_equity
 
@@ -74,6 +81,10 @@ def build_scheduler() -> BackgroundScheduler:
     sched.add_job(_with_session(_analyze), "interval", minutes=s.analyze_interval_min, id="analyze",
                   jitter=30)
     sched.add_job(_with_session(_monitor), "interval", minutes=s.monitor_interval_min, id="monitor")
+    # Premier scan une minute après le démarrage, pour que l'onglet Marché
+    # soit renseigné sans attendre l'intervalle complet.
+    sched.add_job(_with_session(_scan), "interval", minutes=s.scan_interval_min, id="scan",
+                  jitter=60, next_run_time=datetime.now() + timedelta(minutes=1))
     sched.add_job(_with_session(_snapshot), "interval", hours=1, id="snapshot")
     sched.add_job(_with_session(_watchdog), "interval", minutes=s.watchdog_interval_min, id="watchdog")
     sched.add_job(_with_session(_weekly_report), "cron", day_of_week=s.report_weekly_day,

@@ -49,6 +49,8 @@ class Signal(Base):
     __tablename__ = "signals"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(12), default="news", index=True)  # news / technical
+    markers: Mapped[list] = mapped_column(JSON, default=list)   # marqueurs techniques repérés
     news_ids: Mapped[list] = mapped_column(JSON, default=list)
     asset: Mapped[str] = mapped_column(String(40))          # ex: "AAPL", "BTC/EUR"
     asset_class: Mapped[AssetClass] = mapped_column(Enum(AssetClass))
@@ -86,8 +88,13 @@ class Trade(Base):
     exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl: Mapped[float | None] = mapped_column(Float, nullable=True)      # en devise de base
     pnl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
-    close_reason: Mapped[str] = mapped_column(String(40), default="")    # stop/target/manual/expired
+    close_reason: Mapped[str] = mapped_column(String(40), default="")    # stop/target/trailing/manual
     rationale: Mapped[str] = mapped_column(Text, default="")
+    initial_stop: Mapped[float] = mapped_column(Float, default=0.0)  # stop d'origine (calcul du R)
+    entry_fee: Mapped[float] = mapped_column(Float, default=0.0)
+    exit_fee: Mapped[float] = mapped_column(Float, default=0.0)
+    highest_price: Mapped[float | None] = mapped_column(Float, nullable=True)  # suivi du stop suiveur
+    trail_active: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class EquitySnapshot(Base):
@@ -114,6 +121,54 @@ class RiskConfig(Base):
     kill_switch: Mapped[bool] = mapped_column(Boolean, default=False)
     live_trading212: Mapped[bool] = mapped_column(Boolean, default=False)
     live_kraken: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Enveloppes : part maximale du portefeuille engageable, au total et par
+    # classe d'actif. Le reste du capital n'est jamais touché.
+    max_invested_pct: Mapped[float] = mapped_column(Float, default=60.0)
+    envelope_crypto_pct: Mapped[float] = mapped_column(Float, default=30.0)
+    envelope_stock_pct: Mapped[float] = mapped_column(Float, default=40.0)
+
+    # Frais par classe d'actif (crypto : Revolut Standard par défaut)
+    fee_crypto_pct: Mapped[float] = mapped_column(Float, default=1.49)
+    fee_crypto_min: Mapped[float] = mapped_column(Float, default=0.99)
+    fee_stock_pct: Mapped[float] = mapped_column(Float, default=0.15)
+    fee_stock_min: Mapped[float] = mapped_column(Float, default=0.0)
+    # Un trade n'est pris que si l'objectif vaut au moins N fois l'aller-retour
+    min_target_fee_ratio: Mapped[float] = mapped_column(Float, default=3.0)
+
+    # Analyse technique (fonctionne sans aucune clé API)
+    tech_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    tech_min_conviction: Mapped[int] = mapped_column(Integer, default=70)
+    tech_timeframe_min: Mapped[int] = mapped_column(Integer, default=1440)
+    tech_llm_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    crypto_watchlist: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Stop suiveur : verrouille les gains quand la position part dans le bon sens.
+    # Valeurs retenues d'après le backtest (voir README) : +2R puis suivi à 1,5R.
+    trailing_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    trail_activate_r: Mapped[float] = mapped_column(Float, default=2.0)
+    trail_distance_r: Mapped[float] = mapped_column(Float, default=1.5)
+
+
+class MarketState(Base):
+    """Dernière lecture technique d'une paire — alimente l'onglet Marché.
+
+    Répond à « pourquoi le bot ne fait rien ? » : chaque paire scannée y laisse
+    son état, ses marqueurs et la raison de l'inaction.
+    """
+
+    __tablename__ = "market_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    price: Mapped[float] = mapped_column(Float, default=0.0)
+    trend: Mapped[str] = mapped_column(String(20), default="")
+    rsi: Mapped[float] = mapped_column(Float, default=0.0)
+    atr_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    conviction: Mapped[int] = mapped_column(Integer, default=0)
+    markers: Mapped[list] = mapped_column(JSON, default=list)
+    decision: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class PushSubscription(Base):
