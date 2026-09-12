@@ -1,5 +1,5 @@
 import { fmtEUR, fmtPct } from "../api";
-import { Card, Empty, EquityChart, Tile } from "../components";
+import { Card, Empty, EquityChart, Gauge, Tile } from "../components";
 
 export default function Dashboard({ data }) {
   if (!data) return <Empty>Chargement…</Empty>;
@@ -30,8 +30,31 @@ export default function Dashboard({ data }) {
         <EquityChart data={data.equity_curve} />
       </Card>
 
+      {data.envelopes && (
+        <Card title="Enveloppes engagées">
+          <Gauge
+            label="Total du portefeuille"
+            used={data.envelopes.invested_pct}
+            max={data.envelopes.max_invested_pct}
+            amount={data.envelopes.invested}
+          />
+          {data.envelopes.by_class.map((c) => (
+            <Gauge key={c.name} label={c.name} used={c.used_pct} max={c.max_pct} amount={c.used} />
+          ))}
+          <p className="small muted">
+            Le capital au-delà de ces plafonds n'est jamais engagé, quelle que soit
+            la qualité d'un signal.
+          </p>
+        </Card>
+      )}
+
       <Card title={`Positions ouvertes (${data.positions.length})`}>
-        {data.positions.length === 0 && <Empty>Aucune position ouverte. Le bot attend une opportunité.</Empty>}
+        {data.positions.length === 0 && (
+          <Empty>
+            Aucune position ouverte. Le bot attend une configuration valable —
+            l'onglet Marché montre ce qu'il observe.
+          </Empty>
+        )}
         {data.positions.map((p) => (
           <div className="row" key={p.id}>
             <div>

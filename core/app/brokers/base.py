@@ -16,6 +16,7 @@ class Fill:
     qty: float
     broker: str
     is_paper: bool
+    fee: float = 0.0   # commission prélevée par le courtier, en devise de base
 
 
 class BrokerAdapter(ABC):
