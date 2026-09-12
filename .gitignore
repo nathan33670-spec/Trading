@@ -19,5 +19,8 @@ web/dist/
 *.db
 *.sqlite3
 
+# Marqueur du self-update en mode archive (sans git)
+.deployed-commit
+
 # Divers
 .DS_Store
