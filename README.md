@@ -38,22 +38,17 @@ votre téléphone à chaque trade — avec synthèses hebdomadaires et mensuelle
 
 ### 1. Récupérer le projet et configurer
 
-Sans git (une archive suffit). Le dépôt étant privé, créez d'abord un jeton
-lecture seule : github.com → Settings → Developer settings → Fine-grained
-tokens → ce dépôt seul, permission **Contents: Read-only**. Puis :
+Sans git (une archive suffit) :
 
 ```bash
-TOKEN=github_pat_…   # votre jeton
-curl -sfL -H "Authorization: Bearer $TOKEN" \
-  https://api.github.com/repos/nathan33670-spec/Trading/tarball/main | tar xz
+curl -sfL https://api.github.com/repos/nathan33670-spec/Trading/tarball/main | tar xz
 mv nathan33670-spec-Trading-* Trading && cd Trading
 cp .env.example .env
 ```
 
-Mettez aussi ce jeton dans `.env` (`GITHUB_TOKEN=`) : le self-update s'en
-servira pour récupérer les mises à jour. (Avec git si vous l'avez :
-`git clone https://github.com/nathan33670-spec/Trading.git && cd Trading` —
-le self-update utilisera alors `git pull` au lieu de l'archive.)
+(Avec git si vous l'avez : `git clone https://github.com/nathan33670-spec/Trading.git && cd Trading` —
+le self-update utilisera alors `git pull` au lieu de l'archive. Si le dépôt
+repasse en privé un jour : jeton lecture seule dans `GITHUB_TOKEN` du `.env`.)
 
 Dans `.env`, renseignez :
 - `API_TOKEN` : `openssl rand -hex 32` — c'est le mot de passe de la PWA
