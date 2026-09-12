@@ -36,12 +36,24 @@ votre téléphone à chaque trade — avec synthèses hebdomadaires et mensuelle
 
 ## Installation sur le NAS
 
-### 1. Cloner et configurer
+### 1. Récupérer le projet et configurer
+
+Sans git (une archive suffit). Le dépôt étant privé, créez d'abord un jeton
+lecture seule : github.com → Settings → Developer settings → Fine-grained
+tokens → ce dépôt seul, permission **Contents: Read-only**. Puis :
 
 ```bash
-git clone <ce-dépôt> && cd Trading
+TOKEN=github_pat_…   # votre jeton
+curl -sfL -H "Authorization: Bearer $TOKEN" \
+  https://api.github.com/repos/nathan33670-spec/Trading/tarball/main | tar xz
+mv nathan33670-spec-Trading-* Trading && cd Trading
 cp .env.example .env
 ```
+
+Mettez aussi ce jeton dans `.env` (`GITHUB_TOKEN=`) : le self-update s'en
+servira pour récupérer les mises à jour. (Avec git si vous l'avez :
+`git clone https://github.com/nathan33670-spec/Trading.git && cd Trading` —
+le self-update utilisera alors `git pull` au lieu de l'archive.)
 
 Dans `.env`, renseignez :
 - `API_TOKEN` : `openssl rand -hex 32` — c'est le mot de passe de la PWA
@@ -213,9 +225,11 @@ Deux mécanismes complémentaires :
    claude.ai/code → Routines ; couverte par votre abonnement Claude.)
 
 2. **Redéploiement automatique sur le NAS** — `scripts/self-update.sh`
-   détecte les nouveaux commits, fait `git pull` + `docker compose up -d
-   --build`, et envoie une notification push une fois redéployé. À planifier
-   sur le NAS (Synology : Planificateur de tâches ; sinon cron) :
+   détecte les nouveaux commits et fait `docker compose up -d --build`, puis
+   envoie une notification push. **git n'est pas requis** : si le NAS n'en a
+   pas, le script compare le dernier commit via l'API GitHub et télécharge
+   l'archive de la branche (`.env` n'est jamais touché). À planifier sur le
+   NAS (Synology : Planificateur de tâches ; sinon cron) :
 
    ```
    30 6 * * * /chemin/vers/Trading/scripts/self-update.sh >> /var/log/newstrader-update.log 2>&1
