@@ -1,15 +1,31 @@
 # NewsTrader 📈
 
-Bot de trading auto-hébergé sur votre NAS, piloté par **deux moteurs** :
+Bot de trading auto-hébergé sur votre NAS, piloté par deux moteurs :
 
-- **l'analyse technique** des courbes crypto (cassures, replis en tendance,
-  croisements MACD, rebonds de survente) — déterministe, sans aucune clé API ;
+- **la stratégie de régime** sur la crypto — investi tant que le prix est
+  au-dessus de son niveau d'il y a 12 mois, en cash sinon. Déterministe, sans
+  aucune clé API, quelques mouvements par an.
 - **l'actualité financière**, analysée par **Gemini** avec **Claude** en
   contre-expertise.
 
 Les deux alimentent un **moteur de risque déterministe** que vous configurez
-(enveloppes, stops, frais), qui exécute les ordres (simulés ou réels), gère les
-positions avec un stop suiveur, et vous notifie à chaque trade.
+(enveloppes, frais), qui exécute les ordres (simulés ou réels) et vous notifie.
+
+### Ce que donne la stratégie sur BTC/EUR, frais Revolut inclus
+
+Mise de départ 10 000 €, mesuré sur les bougies réelles depuis 2016 :
+
+| Période | Stratégie | Achat-conservation | Pire baisse |
+|---|---|---|---|
+| **5 dernières années** | **29 440 €** (23,7 %/an) | 16 372 € (10,2 %/an) | **−47 %** contre −74 % |
+| **3 dernières années** | **29 164 €** (41,6 %/an) | 24 452 € (33,7 %/an) | **−32 %** contre −52 % |
+| Tout l'historique (9,4 ans) | 367 708 € (46,7 %/an) | 586 295 € (54,2 %/an) | −83 % contre −83 % |
+
+Sur les périodes récentes, la stratégie bat nettement l'achat-conservation avec
+une baisse maximale bien moindre. Sur l'historique complet elle reste derrière :
+2016-2017 a monté presque sans interruption, et tout filtre y coûte cher.
+**Aucune de ces observations ne prédit l'avenir** — le backtest est rejouable à
+tout moment depuis l'onglet Marché.
 
 > ## ⚠️ À lire avant tout
 > **Aucun bot ne "gagne de l'argent" garanti.** Le trading comporte un risque
@@ -22,15 +38,14 @@ positions avec un stop suiveur, et vous notifie à chaque trade.
 ## Architecture
 
 ```
-   Bougies Kraken ──► analyse technique ──┐
-   (sans clé API)     (marqueurs, ATR)    │
-                                          ├──► signaux ──► moteur de risque
-   RSS / Finnhub ──► Gemini + Claude ─────┘                      │
-                        │                          enveloppes, taille, frais
-                        │                                        │
-   PWA (téléphone) ◄────┤                  courtiers : Paper (défaut)
-   notifications push   │                  Trading212 (actions/ETF, live)
-                        │                  Kraken (crypto, live)
+   Historique Bitstamp ──► stratégie de régime ──┐
+   (10 ans, sans clé)      (momentum 12 mois)    │
+                                                 ├──► moteur de risque
+   RSS / Finnhub ──────► Gemini + Claude ────────┘    enveloppes, frais
+                        │                                    │
+   PWA (téléphone) ◄────┤              courtiers : Paper (défaut)
+   notifications push   │              Trading212 (actions/ETF, live)
+                        │              Kraken (crypto, live)
    synthèses + watchdog ┘  (intégrés au core)
 ```
 
@@ -183,37 +198,52 @@ le port en HTTP nu sur internet** — Tailscale ou reverse proxy HTTPS.
 
 ## Fonctionnement
 
-### Moteur 1 — analyse technique des courbes (crypto, sans clé API)
+### Moteur 1 — stratégie de régime (crypto, sans clé API)
 
-Toutes les 30 minutes, chaque paire de la watchlist est relue depuis l'API
-publique Kraken (bougies journalières par défaut) et passée au crible de
-détecteurs déterministes :
+**Investir si le prix est au-dessus de son niveau d'il y a 12 mois, rester en
+cash sinon.** Signal vérifié une fois par semaine, quelques mouvements par an.
 
-| Marqueur déclencheur | Ce qu'il repère |
-|---|---|
-| `breakout` | cassure du plus haut 20 bougies **avec** volume > 1,3× la moyenne |
-| `pullback` | repli acheté en tendance (RSI sous 40 puis retour au-dessus de 45 près de l'EMA20) |
-| `macd_cross` | croisement MACD haussier tout frais, au-dessus de zéro |
-| `golden_cross` | EMA20 repassant au-dessus de l'EMA50 |
-| `oversold_bounce` | clôture sous la bande de Bollinger basse, RSI < 30, puis rebond |
+C'est le signal le plus documenté de la finance quantitative (momentum 12 mois :
+Jegadeesh & Titman, Faber, Antonacci) — pas une trouvaille maison. Il a été
+retenu après avoir mesuré une dizaine de familles de stratégies sur 10 ans de
+BTC/EUR et quatre sous-périodes. Les résultats sont en tête de ce README.
 
-Trois principes structurent ces règles (le premier jet produisait ~1 000 signaux
-par mois, soit une fabrique à commissions) :
+Trois enseignements du banc d'essai, qui expliquent chaque choix :
 
-1. **Des événements, pas des états** — un signal se déclenche sur une transition
-   qui vient d'avoir lieu, jamais sur une situation qui dure.
-2. **Uniquement des bougies closes** — la dernière bougie de l'exchange est en
-   formation ; l'inclure ferait clignoter les détecteurs au gré des ticks.
-3. **Un objectif qui paie les frais** — voir la section Frais ci-dessous.
+1. **Une stratégie jugée sur une seule période ne vaut rien.** Une première
+   version de ce bot faisait du swing trading et perdait −1 042 € au backtest —
+   testée uniquement sur 2024-2026, un marché baissier. Sur 10 ans, *toutes* les
+   stratégies longues gagnent : la fenêtre de test décidait du verdict, pas la
+   stratégie.
+2. **Les frais dictent la fréquence.** À ~3 % l'aller-retour, une stratégie qui
+   trade souvent est condamnée d'avance : le filtre SMA50 a payé 567 000 € de
+   frais sur 10 ans, contre 21 000 € pour le momentum 12 mois.
+3. **Il faut laisser courir les gagnants.** Les objectifs fixes à 2R plafonnent
+   les gains alors que les tendances crypto courent sur 5 à 20R. D'où l'absence
+   d'objectif de prix ici : la sortie vient du signal.
 
-Un déclencheur seul ne suffit pas : il faut **au moins deux confirmations**
-(tendance de fond, RSI sain, momentum, volume, pente de l'EMA50). Des pénalités
-retirent des points (surachat, résistance proche, volume anémique). Le total
-donne une conviction 0-100 ; stop et objectif sont dérivés de l'**ATR** (la
-volatilité réelle de la paire), jamais de pourcentages fixes.
+Ce que la calibration a aussi montré, et qui est appliqué :
 
-L'onglet **Marché** montre, paire par paire, ce que le moteur voit et pourquoi
-il n'agit pas — la réponse à « pourquoi le bot ne fait rien ? ».
+- **Uniquement BTC** (et, moins nettement, ETH). Le même filtre testé sur XRP,
+  LTC, LINK et ADA détruit le capital : leurs hausses sont trop brèves pour un
+  signal à 12 mois.
+- **Contrôle hebdomadaire**, pas quotidien : 32 mouvements en 10 ans si on
+  vérifie chaque jour, 15 en vérifiant chaque semaine — pour un rendement moyen
+  supérieur (mesuré sur tous les décalages de jour possibles, pour ne pas
+  confondre un bon réglage avec un coup de chance).
+- **Pas de stop serré**, seulement un garde-fou catastrophe à −50 %.
+
+> Une validation « hors échantillon » a été faite : les paramètres choisis sur
+> 2016-2021 puis appliqués tels quels à 2021-2026 se sont effondrés (5,4 %/an
+> contre 19,2 % pour l'achat-conservation). C'est la démonstration du
+> sur-ajustement — et la raison pour laquelle le réglage retenu est le signal
+> standard, pas celui qui brillait le plus sur l'historique.
+
+### Moteur 1 bis — swing court terme (désactivé par défaut)
+
+L'ancien moteur (cassures, replis, croisements MACD, objectifs à 2R) reste
+disponible dans Réglages → Stratégie. Il est **mesuré perdant** : conservé pour
+expérimenter, déconseillé.
 
 ### Moteur 2 — actualité
 
@@ -271,52 +301,38 @@ devient énorme (aller-retour de 6,6 % sur 30 €). C'est pourquoi :
 
 ## 📊 Le backtest — mesurer plutôt que croire
 
-L'onglet **Marché** contient un backtest qui rejoue les règles réelles sur
-l'historique réel, frais compris, avec des hypothèses pessimistes (entrée à
-l'ouverture de la bougie suivante ; si une bougie touche stop et objectif, on
-suppose que le stop est parti en premier).
+L'onglet **Marché** rejoue la stratégie sur l'historique réel depuis 2016
+(Bitstamp, public et sans clé), frais compris, décision à la clôture et
+exécution à l'ouverture suivante. Il affiche la période complète **et** les
+sous-périodes récentes, comparées à « acheter et ne rien faire ».
 
-**Résultat mesuré au moment de l'écriture de ce moteur** (10 paires EUR,
-bougies journalières, ~510 jours, mise de 1 000 €/trade, frais Revolut) :
+Relancez-le régulièrement : il tourne sur les données du jour. La règle de
+décision reste la même — **ne passez en réel que si le backtest est positif
+ET que plusieurs semaines de paper trading le confirment.**
 
-| Mesure | Valeur |
-|---|---|
-| Trades | 22 |
-| Taux de réussite | 32 % |
-| Résultat **brut** | −392 € |
-| Frais | −650 € |
-| Résultat **net** | **−1 042 €** |
+### Exécution et suivi des positions d'allocation
 
-À lire honnêtement : **la stratégie perd de l'argent sur cette période**, et
-même avant frais. La période testée est un marché baissier sévère (9 paires sur
-10 ont chuté de 10 à 74 %, l'achat-conservation aurait perdu bien davantage), et
-ce bot n'achète qu'à la hausse. Une dizaine de variantes ont été testées (unités
-de temps 4 h et 1 jour, stops de 1,5 à 3,5×ATR, sorties à objectif fixe ou en
-suivi de tendance, filtre de régime BTC) : **toutes négatives sur ces données**.
-
-Ce qui en découle, et qui est la vraie raison d'être du paper trading :
-
-- ne passez **jamais** en réel sans un backtest positif **et** plusieurs
-  semaines de simulation positives ;
-- relancez le backtest régulièrement — il tourne sur les données du jour ;
-- si les chiffres restent négatifs, la bonne décision est de laisser le bot en
-  paper, pas d'augmenter la mise.
+Les positions ouvertes par la stratégie de régime sont marquées « pilotées par
+le signal » : ni objectif de prix, ni stop suiveur. Elles restent ouvertes tant
+que la tendance de fond tient, et se ferment quand le signal se retourne. Seul
+un stop catastrophe à −50 % peut intervenir entre deux vérifications.
 
 ## L'application
 
 - **Dashboard** : valeur du portefeuille, P&L jour/semaine/mois, courbe
   d'équity 30 jours, **jauges d'enveloppes**, positions ouvertes, badge PAPER/LIVE.
-- **Marché** : ce que le moteur technique voit sur chaque paire (tendance, RSI,
-  marqueurs repérés avec leur contribution, et la raison de l'inaction), un
-  bouton « Analyser maintenant » et le **backtest** sur données réelles.
+- **Marché** : l'état du signal sur chaque actif suivi et la raison de
+  l'inaction, un bouton « Évaluer maintenant », et le **backtest** sur 10 ans
+  comparé à l'achat-conservation.
 - **Signaux** : le raisonnement de chaque analyse — marqueurs techniques ou
   actualité + avis du second modèle — et pourquoi un signal a été exécuté ou
   rejeté (traçabilité complète).
 - **Historique** : tous les trades, filtres, clôture manuelle, export CSV.
 - **Rapports** : synthèses hebdo/mensuelles archivées.
-- **Réglages** : risque, **enveloppes**, **frais**, moteur technique et
-  watchlist, stop suiveur, kill-switch, bascules paper/réel, clés API,
-  notifications.
+- **Réglages** : choix de la **stratégie**, risque, **enveloppes**, **frais**,
+  kill-switch, bascules paper/réel, **clés API avec bouton « Tester »**
+  (vérification réelle auprès de Google, Anthropic, Finnhub, Kraken ou
+  Trading212 — une clé mal collée se voit immédiatement), notifications.
 
 ## Mise à jour automatique (self-update)
 
@@ -382,8 +398,12 @@ curl -X POST http://localhost:8000/api/test/inject-news \
   l'API publique Kraken, gratuite et sans clé. Finnhub ne donne pas
   d'historique de bougies en gratuit, donc les actions restent pilotées par
   l'actualité seule.
-- **Aucun avantage statistique démontré** : voir la section Backtest. Le moteur
-  est correct, mesuré et prudent — il n'est pas prouvé rentable.
+- **La stratégie est une exposition longue filtrée, pas une martingale.** Si la
+  crypto baisse durablement, le filtre limite la casse mais ne crée pas de
+  profit. Les drawdowns restent importants (−32 % à −47 % sur les périodes
+  récentes, −83 % sur 10 ans).
+- **Résultats passés ≠ résultats futurs.** Le signal est robuste sur les données
+  disponibles ; cela ne garantit rien.
 - **Prix des actions** via Finnhub gratuit : tickers US principalement. Les
   ETF/actions EU passent par Trading212 en réel, mais le paper trading actions
   est le plus fiable sur les tickers US.

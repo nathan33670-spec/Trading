@@ -45,9 +45,16 @@ def _monitor(db):
 
 
 def _scan(db):
+    """Stratégie crypto active : régime (défaut) ou swing court terme."""
+    from .analysis.allocator import run as run_regime
     from .analysis.scanner import scan
+    from .portfolio.service import get_risk_config
 
-    scan(db)
+    strategy = get_risk_config(db).strategy
+    if strategy == "regime":
+        run_regime(db)
+    elif strategy == "swing":
+        scan(db)
 
 
 def _snapshot(db):

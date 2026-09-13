@@ -91,6 +91,8 @@ class Trade(Base):
     close_reason: Mapped[str] = mapped_column(String(40), default="")    # stop/target/trailing/manual
     rationale: Mapped[str] = mapped_column(Text, default="")
     initial_stop: Mapped[float] = mapped_column(Float, default=0.0)  # stop d'origine (calcul du R)
+    # "levels" : géré par stop/objectif — "signal" : la sortie vient de la stratégie
+    managed_by: Mapped[str] = mapped_column(String(10), default="levels")
     entry_fee: Mapped[float] = mapped_column(Float, default=0.0)
     exit_fee: Mapped[float] = mapped_column(Float, default=0.0)
     highest_price: Mapped[float | None] = mapped_column(Float, nullable=True)  # suivi du stop suiveur
@@ -136,8 +138,18 @@ class RiskConfig(Base):
     # Un trade n'est pris que si l'objectif vaut au moins N fois l'aller-retour
     min_target_fee_ratio: Mapped[float] = mapped_column(Float, default=3.0)
 
-    # Analyse technique (fonctionne sans aucune clé API)
-    tech_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Stratégie crypto active :
+    #   "regime" — momentum 12 mois, tout ou rien (défaut, validé au backtest)
+    #   "swing"  — détection de configurations court terme (perdante au backtest)
+    #   "off"    — aucune stratégie automatique sur la crypto
+    strategy: Mapped[str] = mapped_column(String(10), default="regime")
+    regime_assets: Mapped[list] = mapped_column(JSON, default=list)
+    momentum_days: Mapped[int] = mapped_column(Integer, default=365)
+    regime_check_days: Mapped[int] = mapped_column(Integer, default=7)
+    regime_confirm_sma: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Analyse technique court terme (fonctionne sans aucune clé API)
+    tech_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     tech_min_conviction: Mapped[int] = mapped_column(Integer, default=70)
     tech_timeframe_min: Mapped[int] = mapped_column(Integer, default=1440)
     tech_llm_review: Mapped[bool] = mapped_column(Boolean, default=False)

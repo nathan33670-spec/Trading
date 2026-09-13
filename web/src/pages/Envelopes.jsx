@@ -95,23 +95,69 @@ export default function Envelopes({ cfg, save, setCfg }) {
         </p>
       </Card>
 
-      <Card title="Moteur d'analyse technique">
+      <Card title="Stratégie crypto">
         <p className="small muted" style={{ marginTop: 0 }}>
-          Analyse les courbes crypto et agit sans aucune clé API. C'est lui qui
-          fait vivre le bot entre deux actualités.
+          Fonctionne sans aucune clé API : les prix viennent d'API publiques.
         </p>
-        <div className="switch-row">
-          <div className="lbl">
-            <div className="t">Activer l'analyse technique</div>
-            <div className="d">Scan de la watchlist toutes les 30 minutes.</div>
+        <div className="field">
+          <label>Stratégie active</label>
+          <select
+            value={cfg.strategy}
+            onChange={(e) => save({ ...cfg, strategy: e.target.value })}
+          >
+            <option value="regime">Régime — momentum 12 mois (recommandé)</option>
+            <option value="swing">Swing court terme (perdant au backtest)</option>
+            <option value="off">Aucune</option>
+          </select>
+          <div className="small muted" style={{ marginTop: 8 }}>
+            {cfg.strategy === "regime" && (
+              <>
+                Investi tant que le prix est au-dessus de son niveau d'il y a 12 mois,
+                en cash sinon. Quelques mouvements par an, donc très peu de frais.
+                Sortie sur retournement du signal, pas sur objectif de prix.
+              </>
+            )}
+            {cfg.strategy === "swing" && (
+              <>
+                ⚠️ Détection de configurations court terme. Mesurée <b>perdante</b> au
+                backtest : les allers-retours fréquents ne survivent pas à 3 % de frais.
+                Conservée pour expérimenter, pas recommandée.
+              </>
+            )}
+            {cfg.strategy === "off" && "Aucune prise de position automatique sur la crypto."}
           </div>
-          <input
-            type="checkbox"
-            checked={cfg.tech_enabled}
-            onChange={(e) => save({ ...cfg, tech_enabled: e.target.checked })}
-          />
         </div>
 
+        {cfg.strategy === "regime" && (
+          <>
+            <div className="field">
+              <label>Actifs suivis</label>
+              <div className="small muted">
+                Le momentum 12 mois n'est validé que sur BTC (et, moins nettement,
+                ETH). Sur les altcoins, le backtest montre qu'il détruit le capital.
+              </div>
+              <input
+                type="text"
+                value={(cfg.regime_assets || []).join(", ")}
+                placeholder="BTC/EUR"
+                onChange={(e) =>
+                  setCfg({ ...cfg, regime_assets: e.target.value.split(",").map((s) => s.trim()) })
+                }
+                onBlur={() => save(cfg)}
+              />
+            </div>
+            {number("momentum_days", "Horizon du momentum (jours)",
+              "365 = 12 mois, le réglage le plus documenté et le plus robuste.",
+              { step: 30, min: 90, max: 720 })}
+            {number("regime_check_days", "Vérification du signal (jours)",
+              "7 = hebdomadaire. Vérifier tous les jours double les allers-retours sans gain.",
+              { step: 1, min: 1, max: 30 })}
+          </>
+        )}
+      </Card>
+
+      {cfg.strategy === "swing" && (
+      <Card title="Réglages du swing court terme">
         <div className="field">
           <label>Unité de temps analysée</label>
           <div className="small muted">
@@ -159,6 +205,7 @@ export default function Envelopes({ cfg, save, setCfg }) {
           />
         </div>
       </Card>
+      )}
 
       <Card title="Stop suiveur">
         <p className="small muted" style={{ marginTop: 0 }}>

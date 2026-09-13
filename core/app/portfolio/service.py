@@ -225,6 +225,98 @@ def execute_signal(db: Session, signal: Signal) -> Trade | None:
     return trade
 
 
+def open_allocation(db: Session, signal: Signal, share: float = 1.0) -> Trade | None:
+    """Ouvre une position d'**allocation** (stratégie de régime).
+
+    Différence essentielle avec `execute_signal` : la taille ne vient pas d'une
+    distance au stop mais de l'enveloppe de la classe d'actif. Il n'y a pas
+    d'objectif de prix — la sortie est décidée par le signal — et le stop est un
+    simple garde-fou catastrophe.
+    """
+    from ..notify.push import notify_trade_opened
+
+    cfg = get_risk_config(db)
+    asset_class = signal.asset_class.value
+
+    def reject(reason: str) -> None:
+        signal.status = SignalStatus.rejected
+        signal.status_reason = reason
+        db.commit()
+        log.info("Allocation %s refusée: %s", signal.asset, reason)
+
+    if cfg.kill_switch:
+        reject("kill-switch actif")
+        return None
+
+    price = marketdata.get_price(signal.asset, asset_class)
+    if not price:
+        reject("prix de marché indisponible")
+        return None
+
+    state = get_state(db)
+    if state.equity <= 0:
+        reject("capital épuisé")
+        return None
+
+    # Budget : la plus contraignante des deux enveloppes, moins ce qui est déjà engagé
+    envelope_pct = cfg.envelope_crypto_pct if asset_class == "crypto" else cfg.envelope_stock_pct
+    class_room = state.equity * envelope_pct / 100.0 - state.exposure_by_class.get(asset_class, 0.0)
+    global_room = state.equity * cfg.max_invested_pct / 100.0 - state.invested
+    budget = min(class_room * share, global_room, state.cash * 0.998)
+
+    if budget <= 0:
+        reject(f"enveloppe {asset_class} ou cash épuisés")
+        return None
+    if budget < state.equity * 0.01:
+        reject("budget résiduel trop faible pour une allocation")
+        return None
+
+    fees = schedule_for(asset_class, cfg)
+    qty = (budget - fees.fee_for(budget)) / price
+    if qty <= 0:
+        reject("taille de position invalide")
+        return None
+
+    broker = broker_for(asset_class, cfg)
+    try:
+        fill = broker.buy(signal.asset, qty, price)
+    except BrokerError as exc:
+        reject(f"courtier: {exc}")
+        return None
+
+    stop = fill.price * (1 - signal.stop_pct / 100)
+    trade = Trade(
+        signal_id=signal.id,
+        broker=fill.broker,
+        is_paper=fill.is_paper,
+        symbol=signal.asset,
+        asset_class=signal.asset_class,
+        side="buy",
+        qty=fill.qty,
+        entry_price=fill.price,
+        stop_price=round(stop, 8),
+        initial_stop=round(stop, 8),
+        # Pas d'objectif : la sortie vient du signal. On place une valeur
+        # inatteignable pour que le suivi par niveaux ne s'en mêle pas.
+        target_price=round(fill.price * 1_000, 8),
+        entry_fee=fill.fee,
+        highest_price=fill.price,
+        managed_by="signal",
+        rationale=signal.rationale,
+    )
+    db.add(trade)
+    db.commit()
+    db.refresh(trade)
+
+    log.info(
+        "Allocation ouverte: %s x%.8f @ %.4f (budget %.2f €, frais %.2f €)",
+        trade.symbol, trade.qty, trade.entry_price, budget, fill.fee,
+    )
+    notify_trade_opened(db, trade)
+    _broadcast("trade_opened", trade)
+    return trade
+
+
 def _broadcast(event: str, trade: Trade) -> None:
     from ..ws import manager
 
@@ -343,6 +435,18 @@ def monitor_positions(db: Session) -> int:
         if trade.highest_price is None or price > trade.highest_price:
             trade.highest_price = price
             dirty = True
+
+        # Les positions d'allocation (stratégie de régime) ne sont pas pilotées
+        # par des niveaux : leur sortie vient du signal. Seul le stop
+        # catastrophe s'applique, pour couvrir un effondrement brutal.
+        if trade.managed_by == "signal":
+            if price <= trade.stop_price:
+                db.commit()
+                dirty = False
+                close_trade(db, trade, price, reason="stop")
+                closed += 1
+            continue
+
         if update_trailing_stop(trade, price, cfg):
             dirty = True
 

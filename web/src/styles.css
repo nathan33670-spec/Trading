@@ -295,3 +295,13 @@ select:focus { outline: none; border-color: var(--accent-1); box-shadow: 0 0 0 3
 .gauge-head b { color: var(--ink); font-variant-numeric: tabular-nums; font-size: 13px; }
 .gauge .bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
 .gauge .bar i { display: block; height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+
+/* ── Tableau de backtest ── */
+.table-scroll { overflow-x: auto; margin-top: 8px; }
+table.bt { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+table.bt th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-3); font-weight: 600; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--border);
+}
+table.bt td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+table.bt tr:last-child td { border-bottom: none; }
