@@ -123,3 +123,45 @@ def test_drawdown_jamais_negatif():
     r = backtest("BTC/EUR", candles(hausse(900)), GRATUIT)
     assert r.max_drawdown >= 0
     assert r.buy_hold_drawdown >= 0
+
+
+# ── Fiscalité (PFU 30 %) ─────────────────────────────────────────────────────
+
+def test_impot_nul_si_aucune_plus_value():
+    r = backtest("BTC/EUR", candles(baisse(900, start=800.0)), GRATUIT, start_equity=10_000)
+    assert r.tax_paid == 0.0              # jamais investi, donc rien à imposer
+    assert r.equity_after_tax == pytest.approx(r.equity)
+
+
+def test_impot_preleve_sur_les_plus_values():
+    r = backtest("BTC/EUR", candles(hausse(900)), GRATUIT, start_equity=10_000)
+    assert r.tax_paid > 0
+    assert r.equity_after_tax < r.equity
+    assert r.cagr_after_tax < r.cagr
+
+
+def test_taux_zero_desactive_l_impot():
+    r = backtest("BTC/EUR", candles(hausse(900)), GRATUIT, start_equity=10_000, tax_rate=0.0)
+    assert r.tax_paid == 0.0
+    assert r.equity_after_tax == pytest.approx(r.equity)
+
+
+def test_plus_value_latente_est_comptee():
+    """Une position encore ouverte porte un impôt latent : sans cela, la
+    stratégie paraîtrait avantagée face à l'achat-conservation."""
+    r = backtest("BTC/EUR", candles(hausse(900)), GRATUIT, start_equity=10_000)
+    assert r.exposure > 0.9               # toujours investi à la fin
+    assert r.tax_paid > 0                 # l'impôt latent est bien pris en compte
+
+
+def test_achat_conservation_impose_une_seule_fois():
+    r = backtest("BTC/EUR", candles(hausse(900)), GRATUIT, start_equity=10_000)
+    attendu = max(r.buy_hold_equity - r.start_equity, 0.0) * 0.30
+    assert r.buy_hold_tax == pytest.approx(attendu, rel=1e-6)
+    assert r.buy_hold_after_tax == pytest.approx(r.buy_hold_equity - r.buy_hold_tax)
+
+
+def test_resume_expose_les_montants_nets():
+    s = backtest("BTC/EUR", candles(hausse(900)), GRATUIT).summary()
+    assert {"tax_paid", "equity_after_tax", "cagr_after_tax",
+            "buy_hold_after_tax", "buy_hold_cagr_after_tax"} <= set(s)

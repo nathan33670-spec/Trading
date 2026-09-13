@@ -47,6 +47,7 @@ casse mais ne crée pas de profit.
 """
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from .indicators import Candle, sma
 
@@ -76,6 +77,13 @@ def validation_note(symbol: str) -> str:
 # Stop catastrophe : uniquement pour couvrir un effondrement brutal entre deux
 # vérifications quotidiennes. La sortie normale passe par le signal.
 CATASTROPHE_STOP_PCT = 50.0
+
+# Prélèvement Forfaitaire Unique français : 12,8 % d'IR + 17,2 % de prélèvements
+# sociaux. Le fait générateur est la conversion crypto → euros (art. 150 VH bis
+# CGI) : une stratégie qui sort en cash déclenche l'impôt à chaque sortie, là où
+# l'achat-conservation ne le déclenche qu'une fois. D'où l'intérêt d'une
+# stratégie à faible fréquence.
+PFU_RATE = 0.30
 
 
 @dataclass
@@ -157,6 +165,10 @@ def evaluate_regime(
 
 # ── Backtest de la stratégie ─────────────────────────────────────────────────
 
+def _year(ts: int) -> int:
+    return datetime.fromtimestamp(ts, timezone.utc).year
+
+
 @dataclass
 class RegimeBacktest:
     symbol: str
@@ -169,6 +181,23 @@ class RegimeBacktest:
     exposure: float
     buy_hold_equity: float
     buy_hold_drawdown: float
+    tax_paid: float = 0.0
+    equity_after_tax: float = 0.0
+    buy_hold_tax: float = 0.0
+    buy_hold_after_tax: float = 0.0
+
+    def _cagr(self, final: float) -> float:
+        if self.years <= 0 or final <= 0 or self.start_equity <= 0:
+            return -100.0
+        return round(((final / self.start_equity) ** (1 / self.years) - 1) * 100, 1)
+
+    @property
+    def cagr_after_tax(self) -> float:
+        return self._cagr(self.equity_after_tax)
+
+    @property
+    def buy_hold_cagr_after_tax(self) -> float:
+        return self._cagr(self.buy_hold_after_tax)
 
     @property
     def cagr(self) -> float:
@@ -196,6 +225,12 @@ class RegimeBacktest:
             "buy_hold_equity": round(self.buy_hold_equity, 2),
             "buy_hold_cagr": self.buy_hold_cagr,
             "buy_hold_drawdown": round(self.buy_hold_drawdown, 1),
+            "tax_paid": round(self.tax_paid, 2),
+            "equity_after_tax": round(self.equity_after_tax, 2),
+            "cagr_after_tax": self.cagr_after_tax,
+            "buy_hold_tax": round(self.buy_hold_tax, 2),
+            "buy_hold_after_tax": round(self.buy_hold_after_tax, 2),
+            "buy_hold_cagr_after_tax": self.buy_hold_cagr_after_tax,
         }
 
 
@@ -208,11 +243,19 @@ def backtest(
     momentum_days: int = 365,
     confirm_sma: int = 0,
     check_every_days: int = 7,
+    tax_rate: float = PFU_RATE,
 ) -> RegimeBacktest | None:
-    """Rejoue la stratégie, capital composé, frais réels.
+    """Rejoue la stratégie, capital composé, frais réels, impôt compris.
 
     Décision à la clôture de J, exécution à l'ouverture de J+1 — on ne peut pas
     agir sur un prix qu'on ne connaît pas encore.
+
+    Fiscalité (investisseur particulier français) : chaque retour en euros
+    réalise une plus ou moins-value. Les moins-values s'imputent sur les
+    plus-values de la **même année civile** sans report ultérieur ; l'impôt de
+    l'année est prélevé sur le portefeuille au 1er janvier suivant. La plus-value
+    latente d'une position encore ouverte est déduite en fin de simulation, pour
+    comparer ce qui est comparable avec l'achat-conservation.
     """
     warmup = momentum_days + 2
     if len(candles) < warmup + 30:
@@ -227,6 +270,9 @@ def backtest(
     peak = start_equity
     max_dd = 0.0
     invested_days = 0
+    cost_basis = 0.0                    # prix de revient de la position en cours
+    gains_by_year: dict[int, float] = {}
+
 
     for i in range(warmup, len(candles) - 1):
         reference = closes[i - momentum_days]
@@ -244,6 +290,7 @@ def backtest(
                 spend = cash - fee
                 if spend > 0:
                     units = spend / entry_price
+                    cost_basis = spend
                     cash = 0.0
                     fees_paid += fee
                     trades += 1
@@ -251,7 +298,10 @@ def backtest(
                 gross = units * entry_price
                 fee = fees.fee_for(gross)
                 cash = gross - fee
+                year = _year(candles[i + 1].ts)
+                gains_by_year[year] = gains_by_year.get(year, 0.0) + (cash - cost_basis)
                 units = 0.0
+                cost_basis = 0.0
                 fees_paid += fee
                 trades += 1
 
@@ -266,6 +316,18 @@ def backtest(
     span_days = max(len(candles) - warmup, 1)
     years = span_days / 365.25
 
+    # Impôt : somme des années civiles bénéficiaires (une moins-value ne se
+    # reporte pas d'une année sur l'autre), plus la plus-value latente de la
+    # position encore ouverte — pour comparer ce qui est comparable avec
+    # l'achat-conservation, dont l'impôt est lui aussi calculé à la fin.
+    # Simplification assumée : l'impôt est déduit en fin de période et non chaque
+    # année, ce qui ignore la perte de capitalisation sur les sommes versées.
+    # Effet de second ordre ici (une à deux années imposables par période).
+    realised_tax = sum(g for g in gains_by_year.values() if g > 0) * tax_rate
+    latent_tax = max(units * closes[-1] - cost_basis, 0.0) * tax_rate
+    tax_total = realised_tax + latent_tax
+    equity_after_tax = equity - tax_total
+
     # Référence : acheter au même moment et ne rien faire
     bh_units = (start_equity - fees.fee_for(start_equity)) / candles[warmup].open
     bh_peak, bh_dd = start_equity, 0.0
@@ -274,6 +336,9 @@ def backtest(
         bh_peak = max(bh_peak, v)
         if bh_peak > 0:
             bh_dd = max(bh_dd, (bh_peak - v) / bh_peak * 100)
+
+    bh_equity = bh_units * closes[-1]
+    bh_tax = max(bh_equity - start_equity, 0.0) * tax_rate
 
     return RegimeBacktest(
         symbol=symbol,
@@ -284,6 +349,10 @@ def backtest(
         max_drawdown=max_dd,
         years=years,
         exposure=invested_days / span_days,
-        buy_hold_equity=bh_units * closes[-1],
+        buy_hold_equity=bh_equity,
         buy_hold_drawdown=bh_dd,
+        tax_paid=tax_total,
+        equity_after_tax=equity_after_tax,
+        buy_hold_tax=bh_tax,
+        buy_hold_after_tax=bh_equity - bh_tax,
     )
