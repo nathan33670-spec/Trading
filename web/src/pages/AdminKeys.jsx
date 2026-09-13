@@ -13,6 +13,7 @@ export default function AdminKeys() {
   const [status, setStatus] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [msg, setMsg] = useState("");
+  const [tests, setTests] = useState({});
 
   const refresh = () =>
     Promise.all([api("/admin/secrets"), api("/admin/status")])
@@ -37,8 +38,19 @@ export default function AdminKeys() {
       setDrafts((d) => ({ ...d, [name]: "" }));
       setMsg("✅ Clé enregistrée (chiffrée côté serveur)");
       refresh();
+      test(name);   // vérification immédiate : une clé mal collée se voit tout de suite
     } catch (e) {
       setMsg(`❌ ${e.message}`);
+    }
+  };
+
+  const test = async (name) => {
+    setTests((t) => ({ ...t, [name]: { busy: true } }));
+    try {
+      const r = await api(`/admin/secrets/${name}/test`, { method: "POST" });
+      setTests((t) => ({ ...t, [name]: r }));
+    } catch (e) {
+      setTests((t) => ({ ...t, [name]: { ok: false, detail: e.message } }));
     }
   };
 
@@ -98,11 +110,25 @@ export default function AdminKeys() {
                     Enregistrer
                   </button>
                   {item.configured && (
-                    <button className="btn small danger" onClick={() => remove(item.name, item.label)}>
-                      ✕
-                    </button>
+                    <>
+                      <button
+                        className="btn small"
+                        disabled={tests[item.name]?.busy}
+                        onClick={() => test(item.name)}
+                      >
+                        {tests[item.name]?.busy ? "…" : "Tester"}
+                      </button>
+                      <button className="btn small danger" onClick={() => remove(item.name, item.label)}>
+                        ✕
+                      </button>
+                    </>
                   )}
                 </div>
+                {tests[item.name] && !tests[item.name].busy && (
+                  <div className={`small ${tests[item.name].ok ? "pos" : "neg"}`} style={{ marginTop: 6 }}>
+                    {tests[item.name].ok ? "✅" : "❌"} {tests[item.name].detail}
+                  </div>
+                )}
               </div>
             ))}
         </div>
