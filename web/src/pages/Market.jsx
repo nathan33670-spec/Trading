@@ -18,18 +18,21 @@ function Markers({ markers }) {
   );
 }
 
-/* Comparaison stratégie vs achat-conservation sur une période. */
-function PeriodRow({ label, r }) {
-  const better = r.equity > r.buy_hold_equity;
+/* Comparaison stratégie vs achat-conservation, nette d'impôt. */
+function PeriodRow({ label, r, net }) {
+  const mine = net ? r.equity_after_tax : r.equity;
+  const theirs = net ? r.buy_hold_after_tax : r.buy_hold_equity;
+  const myCagr = net ? r.cagr_after_tax : r.cagr;
+  const theirCagr = net ? r.buy_hold_cagr_after_tax : r.buy_hold_cagr;
   return (
     <tr>
       <td>{label}</td>
-      <td className={better ? "pos" : ""}>
-        <b>{fmtEUR(r.equity)}</b>
-        <span className="muted"> ({r.cagr} %/an)</span>
+      <td className={mine > theirs ? "pos" : ""}>
+        <b>{fmtEUR(mine)}</b>
+        <span className="muted"> ({myCagr} %/an)</span>
       </td>
       <td className="muted">
-        {fmtEUR(r.buy_hold_equity)} <span className="muted">({r.buy_hold_cagr} %/an)</span>
+        {fmtEUR(theirs)} <span className="muted">({theirCagr} %/an)</span>
       </td>
       <td className={r.max_drawdown < r.buy_hold_drawdown ? "pos" : "neg"}>
         −{r.max_drawdown} %
@@ -41,6 +44,7 @@ function PeriodRow({ label, r }) {
 }
 
 function RegimeBacktest({ result, busy, onRun }) {
+  const [net, setNet] = useState(true);
   return (
     <Card title="Backtest — la stratégie sur l'historique réel">
       <p className="small muted" style={{ marginTop: 0 }}>
@@ -48,9 +52,17 @@ function RegimeBacktest({ result, busy, onRun }) {
         décision à la clôture et exécution à l'ouverture suivante. Comparée à
         « acheter et ne rien faire ». Une mesure du passé, pas une prévision.
       </p>
-      <button className="btn primary small" disabled={busy} onClick={onRun}>
-        {busy ? "Calcul en cours…" : "Lancer le backtest"}
-      </button>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="btn primary small" disabled={busy} onClick={onRun}>
+          {busy ? "Calcul en cours…" : "Lancer le backtest"}
+        </button>
+        {result && (
+          <label className="small" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="checkbox" checked={net} onChange={(e) => setNet(e.target.checked)} />
+            Net d'impôt (PFU 30 %)
+          </label>
+        )}
+      </div>
 
       {result?.per_symbol?.map((r) => (
         <div key={r.symbol} style={{ marginTop: 16 }}>
@@ -69,26 +81,37 @@ function RegimeBacktest({ result, busy, onRun }) {
                 </tr>
               </thead>
               <tbody>
-                {r.periods?.map((p) => <PeriodRow key={p.label} label={p.label} r={p} />)}
-                <PeriodRow label={`Tout l'historique (${r.years} ans)`} r={r} />
+                {r.periods?.map((p) => <PeriodRow key={p.label} label={p.label} r={p} net={net} />)}
+                <PeriodRow label={`Tout l'historique (${r.years} ans)`} r={r} net={net} />
               </tbody>
             </table>
           </div>
           <p className="small muted">
-            Investie {r.exposure} % du temps, {fmtEUR(r.fees)} de frais sur toute la période.
+            Investie {r.exposure} % du temps, {fmtEUR(r.fees)} de frais
+            {net && <> et {fmtEUR(r.tax_paid)} d'impôt (contre {fmtEUR(r.buy_hold_tax)} en
+            achat-conservation)</>} sur toute la période.
           </p>
           {r.note && <p className="small warn">⚠️ {r.note}</p>}
         </div>
       ))}
 
       {result && (
-        <p className="small warn">
-          Sur les périodes récentes la stratégie bat l'achat-conservation avec une
-          baisse maximale bien moindre. Sur l'historique complet elle reste
-          derrière : 2016-2017 a monté quasiment sans interruption, et tout filtre
-          y coûte cher. Aucune de ces deux observations ne prédit l'avenir —
-          restez en paper trading le temps de juger sur pièces.
-        </p>
+        <>
+          <p className="small warn">
+            Sur les périodes récentes la stratégie bat l'achat-conservation avec une
+            baisse maximale bien moindre. Sur l'historique complet elle reste
+            derrière : 2016-2017 a monté quasiment sans interruption, et tout filtre
+            y coûte cher. Aucune de ces deux observations ne prédit l'avenir —
+            restez en paper trading le temps de juger sur pièces.
+          </p>
+          <p className="small muted">
+            L'option « net d'impôt » applique le PFU de 30 % : chaque retour en
+            euros est un fait générateur, alors que l'achat-conservation n'en
+            déclenche qu'un seul. C'est une estimation, pas un conseil fiscal —
+            et elle suppose le régime du particulier, pas celui du trading
+            habituel.
+          </p>
+        </>
       )}
     </Card>
   );

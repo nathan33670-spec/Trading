@@ -65,6 +65,13 @@ export default function Envelopes({ cfg, save, setCfg }) {
           hors enveloppe reste intouchable.
         </p>
         {ENVELOPES.map(slider)}
+        <p className="small muted">
+          Repère : la volatilité annualisée du Bitcoin avoisine 80 %, contre ~16 %
+          pour les actions américaines. Les approches de parité des risques
+          plafonnent souvent la poche crypto autour de 5 % d'un patrimoine global.
+          Les pourcentages ci-dessus portent sur le capital confié au bot, pas sur
+          l'ensemble de votre patrimoine.
+        </p>
         {engaged > cfg.max_invested_pct && (
           <p className="small warn">
             ⚠️ Crypto + actions ({engaged} %) dépasse l'enveloppe globale

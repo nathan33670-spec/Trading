@@ -353,6 +353,49 @@ le signal » : ni objectif de prix, ni stop suiveur. Elles restent ouvertes tant
 que la tendance de fond tient, et se ferment quand le signal se retourne. Seul
 un stop catastrophe à −50 % peut intervenir entre deux vérifications.
 
+## 🇫🇷 Fiscalité et conformité — ce que ça change vraiment
+
+Le backtest affiche les résultats **nets d'impôt** (case à cocher dans l'onglet
+Marché). C'est important, car le point de comparaison change :
+
+> En France, pour un investisseur particulier (art. 150 VH bis CGI), le fait
+> générateur de l'impôt est la **conversion crypto → euros**, pas les
+> plus-values latentes. Une stratégie qui revient en cash paie donc l'impôt à
+> chaque sortie, là où l'achat-conservation ne le paie qu'une fois.
+
+Effet mesuré sur BTC/EUR, mise de 10 000 €, PFU à 30 % :
+
+| Période | Stratégie (net) | Achat-conservation (net) | Impôt payé |
+|---|---|---|---|
+| 5 dernières années | **23 272 €** (18,1 %/an) | 14 436 € (7,5 %/an) | 6 169 € contre 1 901 € |
+| 3 dernières années | **23 370 €** (31,7 %/an) | 20 081 € (25,4 %/an) | 5 794 € contre 4 320 € |
+| Tout (9,4 ans) | 256 832 € (41,2 %/an) | 412 553 € (48,5 %/an) | 110 876 € contre 172 523 € |
+
+L'impôt **réduit** l'avantage de la stratégie (de +13 100 € à +8 800 € sur
+5 ans) sans l'annuler. C'est une justification supplémentaire du choix de la
+basse fréquence : une stratégie à 100 allers-retours par an serait laminée par
+la combinaison frais + impôt.
+
+Trois points de conformité à connaître, que cette application ne gère pas à
+votre place :
+
+- **Déclarations** : annexe **2086** pour la traçabilité des cessions, et
+  formulaire **3916** pour les comptes ouverts à l'étranger (Kraken,
+  Trading212…), sous peine d'une amende de 1 500 € par compte omis.
+- **Risque de requalification** : la fréquence et la sophistication des outils
+  peuvent faire requalifier l'activité en « trading habituel » (régime BNC,
+  barème progressif + charges sociales, taux marginal pouvant dépasser 60 %).
+  La stratégie retenue fait 1 à 3 mouvements par an, ce qui reste très loin de
+  ce profil — l'ancien moteur swing, lui, en faisait des dizaines.
+- **MiFID II, article 17** : impose aux systèmes automatisés un kill-switch, des
+  contrôles pré- et post-négociation et une traçabilité des versions du code.
+  L'application fournit le kill-switch, les contrôles de risque et l'historique
+  git ; la directive vise les entreprises d'investissement, pas la gestion de
+  son propre patrimoine, mais l'esprit reste une bonne pratique.
+
+*Rien de ce qui précède n'est un conseil fiscal ou juridique. Faites valider
+votre situation par un professionnel avant de passer en réel.*
+
 ## L'application
 
 - **Dashboard** : valeur du portefeuille, P&L jour/semaine/mois, courbe
@@ -365,7 +408,8 @@ un stop catastrophe à −50 % peut intervenir entre deux vérifications.
   rejeté (traçabilité complète).
 - **Historique** : tous les trades, filtres, clôture manuelle, export CSV.
 - **Rapports** : synthèses hebdo/mensuelles archivées.
-- **Réglages** : choix de la **stratégie**, risque, **enveloppes**, **frais**,
+- **Réglages** : choix de la **stratégie**, risque, **enveloppes** (voir la
+  note sur la volatilité ci-dessous), **frais**,
   kill-switch, bascules paper/réel, **clés API avec bouton « Tester »**
   (vérification réelle auprès de Google, Anthropic, Finnhub, Kraken ou
   Trading212 — une clé mal collée se voit immédiatement), notifications.
@@ -440,6 +484,12 @@ curl -X POST http://localhost:8000/api/test/inject-news \
   récentes, −83 % sur 10 ans).
 - **Résultats passés ≠ résultats futurs.** Le signal est robuste sur les données
   disponibles ; cela ne garantit rien.
+- **L'enveloppe crypto par défaut (30 %) est offensive.** La volatilité annualisée
+  du Bitcoin tourne autour de 80 %, contre ~16 % pour les actions américaines :
+  les approches de parité des risques plafonnent en général la poche crypto
+  autour de 5 % d'un patrimoine global. Les 30 % par défaut ici s'entendent sur
+  le capital que vous confiez au bot, pas sur tout votre patrimoine — à ajuster
+  en conscience dans Réglages → Enveloppes.
 - **Prix des actions** via Finnhub gratuit : tickers US principalement. Les
   ETF/actions EU passent par Trading212 en réel, mais le paper trading actions
   est le plus fiable sur les tickers US.
