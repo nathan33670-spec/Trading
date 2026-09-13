@@ -419,6 +419,7 @@ def inject_news(body: FakeNewsBody, db: Session = Depends(get_db)):
 
 @router.get("/market", dependencies=[Depends(require_token)])
 def market(db: Session = Depends(get_db)):
+    from .analysis import regime as _regime
     from .analysis.allocator import assets as regime_assets
     from .analysis.scanner import watchlist
     from .db.models import MarketState
@@ -437,6 +438,7 @@ def market(db: Session = Depends(get_db)):
             "atr_pct": st.atr_pct if st else None,
             "conviction": st.conviction if st else 0,
             "markers": (st.markers or []) if st else [],
+            "note": _regime.validation_note(symbol) if cfg.strategy == "regime" else "",
             "decision": st.decision if st else "pas encore analysée",
             "updated_at": st.updated_at if st else None,
         })
@@ -523,6 +525,7 @@ def market_backtest(
             if sub:
                 periods.append({"label": label, **sub.summary()})
         entry["periods"] = periods
+        entry["note"] = regime.validation_note(symbol)
         results.append(entry)
 
     if not results:

@@ -133,8 +133,10 @@ export default function Envelopes({ cfg, save, setCfg }) {
             <div className="field">
               <label>Actifs suivis</label>
               <div className="small muted">
-                Le momentum 12 mois n'est validé que sur BTC (et, moins nettement,
-                ETH). Sur les altcoins, le backtest montre qu'il détruit le capital.
+                Validé uniquement sur <b>BTC/EUR</b> (ETH en option, plus faible).
+                Testé sur 11 autres actifs — S&P 500, Nasdaq, Apple, Microsoft, or,
+                argent, pétrole, cuivre, gaz, maïs, altcoins — le filtre n'améliore
+                le rendement sur <b>aucun</b> d'entre eux.
               </div>
               <input
                 type="text"
