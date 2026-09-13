@@ -77,6 +77,7 @@ function RegimeBacktest({ result, busy, onRun }) {
           <p className="small muted">
             Investie {r.exposure} % du temps, {fmtEUR(r.fees)} de frais sur toute la période.
           </p>
+          {r.note && <p className="small warn">⚠️ {r.note}</p>}
         </div>
       ))}
 
@@ -172,6 +173,7 @@ export default function Market() {
                 {!isRegime && r.rsi != null && <span className="small muted">RSI {r.rsi}</span>}
               </div>
               <div className="small muted">{r.decision}</div>
+              {r.note && <div className="small warn">⚠️ {r.note}</div>}
               <Markers markers={r.markers} />
             </div>
           ))}

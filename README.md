@@ -239,6 +239,42 @@ Ce que la calibration a aussi montré, et qui est appliqué :
 > sur-ajustement — et la raison pour laquelle le réglage retenu est le signal
 > standard, pas celui qui brillait le plus sur l'historique.
 
+### Sur quels actifs cette stratégie a été validée — et sur lesquels elle échoue
+
+Le filtre a été testé sur 11 actifs hors crypto (20 ans de données Yahoo,
+2006-2026, krachs de 2008, 2020 et 2022 inclus), avec les frais correspondants.
+Verdict : **il ne bat l'achat-conservation sur aucun d'entre eux**, mais réduit
+le drawdown sur 10 sur 11.
+
+| Actif | Stratégie | Achat-conservation | Pire baisse | Verdict |
+|---|---|---|---|---|
+| **BTC/EUR** (5 ans) | **23,7 %/an** | 10,2 %/an | −47 % vs −74 % | ✅ utilisé |
+| **ETH/EUR** (3 ans) | **11,6 %/an** | 8,0 %/an | −46 % vs −67 % | ⚠️ possible |
+| S&P 500 (20 ans) | 6,7 %/an | 8,9 %/an | **−22 % vs −57 %** | ❌ non retenu |
+| Nasdaq 100 (20 ans) | 13,2 %/an | 14,9 %/an | **−30 % vs −54 %** | ❌ non retenu |
+| Apple, Microsoft | nettement en dessous | — | à peine mieux | ❌ non retenu |
+| Or, Argent | 5,7 / 9,9 %/an | 10,0 / 13,1 %/an | un peu mieux | ❌ non retenu |
+| Pétrole, Cuivre, Gaz, Maïs | ≤ 2,3 %/an | mieux | mieux | ❌ non retenu |
+
+Pourquoi cette différence, actif par actif :
+
+* **La crypto a des marchés baissiers de plusieurs années** (−70 à −80 %).
+  Sortir pendant ces phases fait gagner plus que rater quelques rebonds ne fait
+  perdre. C'est là que le filtre paie.
+* **Les actions montent presque tout le temps.** Être hors marché pendant les
+  reprises coûte davantage que d'éviter les krachs ne rapporte. Le filtre reste
+  un bon outil de *réduction du risque* (drawdown divisé par deux sur le
+  S&P 500), mais il fait perdre 1,4 à 2,2 points de rendement annuel — y compris
+  en tenant compte d'un cash rémunéré à 3 % et de frais à 0,15 %.
+* **Les matières premières oscillent sans tendance durable.** Le signal se
+  retourne sans arrêt : 91 allers-retours sur le maïs, 76 sur le gaz. Chaque
+  retournement coûte des frais et arrive trop tard.
+
+Conséquence assumée : **la stratégie de régime ne s'applique qu'à BTC**
+(ETH en option). Les matières premières ne sont pas gérées du tout —
+l'application ne connaît que les classes action, ETF et crypto. Pour les
+actions, seul le moteur d'actualité reste actif.
+
 ### Moteur 1 bis — swing court terme (désactivé par défaut)
 
 L'ancien moteur (cassures, replis, croisements MACD, objectifs à 2R) reste

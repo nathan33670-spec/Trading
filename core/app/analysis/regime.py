@@ -55,6 +55,24 @@ log = logging.getLogger(__name__)
 # Actifs sur lesquels le momentum 12 mois est validé par le backtest.
 DEFAULT_ASSETS = ["BTC/EUR"]
 
+# Le filtre n'améliore le résultat que sur ces actifs. Testé sur 11 autres
+# (S&P 500, Nasdaq, Apple, Microsoft, or, argent, pétrole, cuivre, gaz, maïs,
+# 20 ans de données) : il ne bat l'achat-conservation sur aucun — voir README.
+VALIDATED_ASSETS = {"BTC/EUR", "ETH/EUR"}
+
+
+def validation_note(symbol: str) -> str:
+    """Avertissement affiché pour un actif hors périmètre validé."""
+    symbol = symbol.upper()
+    if symbol == "BTC/EUR":
+        return ""
+    if symbol == "ETH/EUR":
+        return ("ETH : le filtre bat l'achat-conservation sur les périodes récentes "
+                "et réduit le drawdown, mais l'actif lui-même stagne (-0,9 %/an sur 5 ans).")
+    return ("actif hors périmètre validé : le momentum 12 mois n'a amélioré le "
+            "rendement sur aucun actif testé hors BTC/ETH (actions, indices, or, "
+            "argent, pétrole, cuivre, gaz, maïs). À vos risques.")
+
 # Stop catastrophe : uniquement pour couvrir un effondrement brutal entre deux
 # vérifications quotidiennes. La sortie normale passe par le signal.
 CATASTROPHE_STOP_PCT = 50.0
